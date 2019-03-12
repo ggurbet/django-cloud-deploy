@@ -54,6 +54,8 @@ class WorkflowManager(object):
     _TOTAL_NEW_STEPS = 8
     _TOTAL_UPDATE_STEPS = 3
 
+    DEFAULT_GAE_SERVICE_NAME = 'default'
+
     def __init__(self, credentials: credentials.Credentials):
         self._source_generator = source_generator.DjangoSourceFileGenerator()
         self._billing_client = billing.BillingClient.from_credentials(
@@ -85,6 +87,7 @@ class WorkflowManager(object):
             required_services: Optional[List[Dict[str, str]]] = None,
             required_service_accounts: Optional[
                 Dict[str, List[Dict[str, Any]]]] = None,
+            appengine_service_name: Optional[str] = None,
             cloud_storage_bucket_name: str = None,
             region: str = 'us-west1',
             cloud_sql_proxy_path: str = 'cloud_sql_proxy',
@@ -124,6 +127,8 @@ class WorkflowManager(object):
                         ]
                     }],
                 }
+            appengine_service_name: Name of App engine services. This is helpful
+                in e2e test.
             cloud_storage_bucket_name: Name of the Google Cloud Storage Bucket
                 we use to serve static content. By default it is equal to
                 project id.
@@ -137,6 +142,8 @@ class WorkflowManager(object):
             The url of the deployed Django app.
         """
         # A bunch of variables necessary for deployment we hardcode for user.
+        appengine_service_name = appengine_service_name or self.DEFAULT_GAE_SERVICE_NAME
+
         database_username = 'postgres'
         cloud_storage_bucket_name = cloud_storage_bucket_name or project_id
 
@@ -184,6 +191,7 @@ class WorkflowManager(object):
             cloud_storage_bucket_name=cloud_storage_bucket_name,
             cloudsql_secrets=cloud_sql_secrets,
             django_secrets=django_secrets,
+            service_name=appengine_service_name,
             image_tag=image_name)
 
         with self._console_io.progressbar(
@@ -230,10 +238,15 @@ class WorkflowManager(object):
                     django_project_name, image_name, secrets)
         else:
             self._upload_secrets_to_bucket(project_id, secrets)
+
+            # If the app engine service name is not equal to 'default, then this
+            # function is running in E2E test. In E2E test, a GAE application is
+            # already created.
+            is_new = appengine_service_name == self.DEFAULT_GAE_SERVICE_NAME
             with self._console_io.progressbar(
                     300, '[8/{}]: Deployment'.format(self._TOTAL_NEW_STEPS)):
                 app_url = self.deploy_workflow.deploy_gae_app(
-                    project_id, django_directory_path)
+                    project_id, django_directory_path, is_new=is_new)
 
         # Create configuration file to save information needed in "update"
         # command.

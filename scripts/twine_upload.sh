@@ -1,4 +1,4 @@
-# Copyright 2018 Google LLC
+# Copyright 2019 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,4 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-__version__ = '0.1.7'
+set -ev
+
+# If this is not a CircleCI tag, no-op.
+if [[ -z "$CIRCLE_TAG" ]]; then
+  echo "This is not a release tag. Doing nothing."
+  exit 0
+fi
+
+# Ensure that we have the latest versions of Twine, Wheel, and Setuptools.
+python3 -m pip install --upgrade twine wheel setuptools
+
+# Build the distribution and upload.
+python3 setup.py sdist bdist_wheel
+twine upload dist/* --username $PYPI_USERNAME --password $PYPI_PASSWORD
