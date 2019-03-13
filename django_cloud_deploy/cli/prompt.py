@@ -1075,6 +1075,31 @@ class DjangoSuperuserEmailPrompt(StringTemplatePrompt):
                               '"test@example.com"').format(s))
 
 
+class TakeSurveyPrompt(TemplatePrompt):
+    """Ask the user whether they would like to take a survey."""
+
+    SURVEY_LINK = 'https://google.qualtrics.com/jfe/form/SV_3wwUubKBJnC7Fxr'
+
+    def prompt(self, console: io.IO):
+        """Ask users to take a survey.
+
+        If the user would like to take the survey, then the method will open
+        their web browser and direct them to an existing Qualtics survery.
+
+        Args:
+            console: Object to use for user I/O.
+            step: Message to present to user regarding what step they are on.
+            args: Dictionary holding prompts answered by user and set up
+                command-line arguments.
+        """
+        msg = ('Would you like to take a survey to provide your feedback for '
+               'the deployment process? [Y/n]')
+
+        do_survey = _binary_prompt(msg, console, default='Y')
+        if do_survey:
+            webbrowser.open(self.SURVEY_LINK)
+
+
 class RootPrompt(object):
     """Class at the top level that instantiates all of the Prompts."""
 

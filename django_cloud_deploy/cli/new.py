@@ -160,6 +160,9 @@ def main(args: argparse.Namespace, console: io.IO = io.ConsoleIO()):
         console.error('A project with id "{}" already exists'.format(
             actual_parameters['project_id']))
 
+    survey_prompt = prompt.TakeSurveyPrompt()
+    survey_prompt.prompt(console)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='')
