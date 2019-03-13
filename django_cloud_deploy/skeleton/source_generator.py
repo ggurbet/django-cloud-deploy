@@ -505,10 +505,6 @@ class _DependencyFileGenerator(_Jinja2FileGenerator):
             return self._REQUIREMENTS
         return ''
 
-    def generate_from_existing(self, project_dir: str):
-        # TODO: Handle generation based on existing requirements.txt
-        self.generate_new(project_dir)
-
 
 class _YAMLFileGenerator(_Jinja2FileGenerator):
     """Generate YAML file which defines Kubernete deployment and service."""
