@@ -379,7 +379,7 @@ class DependencyFileGeneratorTest(FileGeneratorTest):
         self.assertIn(self._generator._REQUIREMENTS_GOOGLE, files_list)
         self.assertIn(self._generator._REQUIREMENTS, files_list)
 
-    def test_google_dependencies(self):
+    def test_generate_google_dependencies(self):
         # TODO: This is a change-detector test. It should be modified to not
         # check for exact dependencies.
         dependencies = ('Django', 'mysqlclient', 'wheel', 'gunicorn',
@@ -393,7 +393,7 @@ class DependencyFileGeneratorTest(FileGeneratorTest):
             for dependency in dependencies:
                 self.assertIn(dependency, dependency_file_content)
 
-    def test_cloud_dependencies(self):
+    def test_generate_cloud_dependencies(self):
         self._generator.generate_new(self._project_dir)
         dependency_file_path = os.path.join(self._project_dir,
                                             self._generator._REQUIREMENTS)
@@ -402,7 +402,7 @@ class DependencyFileGeneratorTest(FileGeneratorTest):
             self.assertIn('-r ' + self._generator._REQUIREMENTS_GOOGLE,
                           dependency_file_content)
 
-    def test_cloud_dependencies_from_existing(self):
+    def test_generate_cloud_dependencies_from_existing(self):
         project_name = 'test_cloud_dependencies_from_existing'
         dependencies = ['six', 'urllib3']
         # Create a Django project to make the directory looks similar with an
@@ -422,7 +422,7 @@ class DependencyFileGeneratorTest(FileGeneratorTest):
             self.assertIn('-r ' + self._generator._REQUIREMENTS,
                           dependency_file_content)
 
-    def test_cloud_dependencies_user_requirements_not_found(self):
+    def test_generate_cloud_dependencies_user_requirements_not_found(self):
         project_name = 'test_cloud_dependencies_from_existing'
         # Create a Django project to make the directory looks similar with an
         # existing Django project
@@ -436,6 +436,23 @@ class DependencyFileGeneratorTest(FileGeneratorTest):
                           dependency_file_content)
             self.assertNotIn('-r ' + self._generator._REQUIREMENTS,
                              dependency_file_content)
+
+    def test_generate_cloud_dependencies_duplicate_requirements(self):
+        project_name = 'test_cloud_dependencies_from_existing'
+        dependencies = ['Django']
+        # Create a Django project to make the directory looks similar with an
+        # existing Django project
+        management.call_command('startproject', project_name, self._project_dir)
+        dependency_file_path = os.path.join(self._project_dir,
+                                            self._generator._REQUIREMENTS)
+        with open(dependency_file_path, 'wt') as f:
+            f.write('\n'.join(dependencies))
+        self._generator.generate_from_existing(self._project_dir)
+        dependency_file_path = os.path.join(
+            self._project_dir, self._generator._REQUIREMENTS_GOOGLE)
+        with open(dependency_file_path) as dependency_file:
+            dependency_file_content = dependency_file.read()
+            self.assertNotIn('Django', dependency_file_content)
 
     def test_generate_twice(self):
         self._generator.generate_new(self._project_dir)

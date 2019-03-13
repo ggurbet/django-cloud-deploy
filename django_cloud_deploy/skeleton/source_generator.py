@@ -479,7 +479,6 @@ class _DependencyFileGenerator(_Jinja2FileGenerator):
             project_dir: The destination directory path to put requirements.txt.
         """
 
-        self._generate_requirements_google(project_dir)
         requirements_path = self._guess_requirements_path(project_dir)
         absolute_requirements_path = os.path.join(
             project_dir, requirements_path)
@@ -487,14 +486,19 @@ class _DependencyFileGenerator(_Jinja2FileGenerator):
         # Rename user's existing requirements.txt to requirements-user.txt
         # This is because app engine requires a file named exactly
         # "requirements.txt" to exist and contain all dependencies.
+        existing_requirements = set()
         if requirements_path:
+            existing_requirements = requirements_parser.parse(
+                absolute_requirements_path)
             requirements_output_path = os.path.join(
                 project_dir, self._REQUIREMENTS_USER_RENAME)
             os.replace(absolute_requirements_path, requirements_output_path)
+        self._generate_requirements_google(project_dir, existing_requirements)
         self._generate_requirements(project_dir, requirements_path)
 
-    def _generate_requirements_google(self, project_dir: str,
-                                      existing_requirements: Optional[Set[str]] = None):
+    def _generate_requirements_google(
+            self, project_dir: str,
+            existing_requirements: Optional[Set[str]] = None):
         """Generate requirements-google.txt.
 
         This requirements file only contain dependencies required by admin
@@ -515,10 +519,15 @@ class _DependencyFileGenerator(_Jinja2FileGenerator):
             google_requirements -= existing_requirements
 
         with open(template_path) as requirements_file:
-            lines = requirements_file.readlines()
+            lines = requirements_file.read().splitlines()
+            lines = [
+                line for line in lines
+                if requirements_parser.parse_line(line) in google_requirements
+            ]
 
         output_path = os.path.join(project_dir, self._REQUIREMENTS_GOOGLE)
-        self._render_file(template_path, output_path)
+        with open(output_path, 'wt') as output_file:
+            output_file.write('\n'.join(lines))
 
     def _generate_requirements(self, project_dir: str,
                                requirements_path: Optional[str] = None):
