@@ -405,6 +405,21 @@ class DependencyFileGeneratorTest(FileGeneratorTest):
             self.assertIn('-r ' + self._generator._REQUIREMENTS,
                           dependency_file_content)
 
+    def test_cloud_dependencies_user_requirements_not_found(self):
+        project_name = 'test_cloud_dependencies_from_existing'
+        # Create a Django project to make the directory looks similar with an
+        # existing Django project
+        management.call_command('startproject', project_name, self._project_dir)
+        self._generator.generate_from_existing(self._project_dir)
+        dependency_file_path = os.path.join(self._project_dir,
+                                            self._generator._REQUIREMENTS)
+        with open(dependency_file_path) as dependency_file:
+            dependency_file_content = dependency_file.read()
+            self.assertIn('-r ' + self._generator._REQUIREMENTS_GOOGLE,
+                          dependency_file_content)
+            self.assertNotIn('-r ' + self._generator._REQUIREMENTS,
+                             dependency_file_content)
+
     def test_generate_twice(self):
         self._generator.generate_new(self._project_dir)
         self._generator.generate_new(self._project_dir)

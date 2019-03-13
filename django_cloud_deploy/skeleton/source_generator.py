@@ -689,7 +689,8 @@ class DjangoSourceFileGenerator(_FileGenerator):
         self.yaml_file_generator.generate_new(
             project_dir, project_name, project_id, instance_name, region,
             image_tag, cloudsql_secrets, django_secrets)
-        self.app_engine_file_generator.generate_new(project_name, project_dir)
+        self.app_engine_file_generator.generate_new(
+            project_name, project_dir, service_name)
         self.setup_django_environment(
             project_dir=project_dir,
             project_name=project_name,
