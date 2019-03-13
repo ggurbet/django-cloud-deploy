@@ -32,6 +32,16 @@ class RequirementsParserTest(unittest.TestCase):
         super().tearDown()
         shutil.rmtree(self._project_dir)
 
+    def test_parse_single_line(self):
+        requirements = ['six', 'urllib3', 'Django', 'backoff', 'mysqlclient',
+                        'gunicorn', 'wheel']
+        lines = ['six==1.2', 'urllib3>=4.5.6', 'Django<=7.8', 'backoff',
+                 'mysqlclient~=1.3.4', 'gunicorn[1,7.8, 2.3.4]',
+                 'wheel   == 1.2.3']
+        for i in range(len(lines)):
+            self.assertEqual(
+                requirements_parser.parse_line(lines[i]), requirements[i])
+
     def test_parse_requirements(self):
         requirements = ['six', 'urllib3', 'Django', 'backoff']
         lines = ['six==1.2', 'urllib3>=4.5.6', 'Django<=7.8', 'backoff']
