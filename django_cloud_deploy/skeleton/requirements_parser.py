@@ -17,6 +17,24 @@ import re
 from typing import Set
 
 
+def parse_line(line: str) -> str:
+    """Parse a single line in requirements.txt.
+
+    Note that this function only returns what are the requirements. It will not
+    return the version restrictions.
+
+    Args:
+        line: A line in requirements.txt.
+
+    Returns:
+        What kind of requirement does this line contains.
+    """
+
+    # See
+    # https://pip.pypa.io/en/stable/reference/pip_install/#requirement-specifiers
+    return re.split(r'[\[~>=<]', line)[0].strip()
+
+
 def parse(path: str) -> Set[str]:
     """Parses requirements given the absolute path of a requirements.txt.
 
@@ -46,6 +64,6 @@ def parse(path: str) -> Set[str]:
                 results = results.union(
                     parse(os.path.join(dir_path, sub_requirements_path)))
             else:
-                results.add(re.split(r'[>=<]', line)[0])
+                results.add(parse_line(line))
     return results
 

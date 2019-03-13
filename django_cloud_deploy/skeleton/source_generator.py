@@ -17,12 +17,13 @@
 import os
 import shutil
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import django
 from django.core.management import utils
 from django.utils import version
 from django_cloud_deploy import crash_handling
+from django_cloud_deploy.skeleton import requirements_parser
 import jinja2
 
 
@@ -492,7 +493,8 @@ class _DependencyFileGenerator(_Jinja2FileGenerator):
             os.replace(absolute_requirements_path, requirements_output_path)
         self._generate_requirements(project_dir, requirements_path)
 
-    def _generate_requirements_google(self, project_dir: str):
+    def _generate_requirements_google(self, project_dir: str,
+                                      existing_requirements: Optional[Set[str]] = None):
         """Generate requirements-google.txt.
 
         This requirements file only contain dependencies required by admin
@@ -500,9 +502,21 @@ class _DependencyFileGenerator(_Jinja2FileGenerator):
 
         Args:
             project_dir: Absolute path of the directory to put requirements.txt.
+            existing_requirements: A list of existing requirements. The
+                generated requirements-google.txt will not include requirements
+                in this list.
         """
         template_path = os.path.join(self._get_template_folder_path(),
                                      self._REQUIREMENTS_GOOGLE)
+        google_requirements = requirements_parser.parse(template_path)
+
+        # Do not include duplicate requirements
+        if existing_requirements:
+            google_requirements -= existing_requirements
+
+        with open(template_path) as requirements_file:
+            lines = requirements_file.readlines()
+
         output_path = os.path.join(project_dir, self._REQUIREMENTS_GOOGLE)
         self._render_file(template_path, output_path)
 
@@ -520,6 +534,7 @@ class _DependencyFileGenerator(_Jinja2FileGenerator):
 
         template_path = os.path.join(self._get_template_folder_path(),
                                      self._REQUIREMENTS)
+
         output_path = os.path.join(project_dir, self._REQUIREMENTS)
         self._render_file(template_path, output_path, options={
             'requirements_path': requirements_path
