@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit test for django_cloud_deploy/skeleton/utils.py."""
+"""Unit test for django_cloud_deploy/skeleton/requirements_parser.py."""
 
 import os
 import shutil
@@ -22,7 +22,7 @@ from django_cloud_deploy.skeleton import requirements_parser
 
 
 class RequirementsParserTest(unittest.TestCase):
-    """Unit test for django_cloud_deploy/config.py."""
+    """Unit test for django_cloud_deploy/skeleton/requirements_parser.py."""
 
     def setUp(self):
         super().setUp()
