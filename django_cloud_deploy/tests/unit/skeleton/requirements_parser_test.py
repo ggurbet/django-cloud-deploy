@@ -45,8 +45,10 @@ class RequirementsParserTest(unittest.TestCase):
 
     def test_parse_requirements_with_comments(self):
         requirements = ['six', 'urllib3', 'Django', 'backoff']
-        lines = ['"""This is a comment."""', 'six==1.2', '# Comment',
-                 'urllib3>=4.5.6', 'Django<=7.8', 'backoff']
+        lines = [
+            '"""This is a comment."""', 'six==1.2', '# Comment',
+            'urllib3>=4.5.6', 'Django<=7.8', 'backoff'
+        ]
         requirements_file_path = os.path.join(self._project_dir,
                                               'requirements.txt')
         with open(requirements_file_path, 'wt') as f:
