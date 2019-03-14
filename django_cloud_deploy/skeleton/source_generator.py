@@ -479,7 +479,7 @@ class _DependencyFileGenerator(_Jinja2FileGenerator):
             project_dir: The destination directory path to put requirements.txt.
         """
 
-        requirements_path = self._guess_requirements_path(project_dir)
+        requirements_path = utils.guess_requirements_path(project_dir)
         absolute_requirements_path = os.path.join(
             project_dir, requirements_path)
 
@@ -494,7 +494,7 @@ class _DependencyFileGenerator(_Jinja2FileGenerator):
                 project_dir, self._REQUIREMENTS_USER_RENAME)
             os.replace(absolute_requirements_path, requirements_output_path)
         self._generate_requirements_google(project_dir, existing_requirements)
-        self._generate_requirements(project_dir, requirements_path)
+        self._generate_requirements(project_dir, requirements_output_path)
 
     def _generate_requirements_google(
             self, project_dir: str,
@@ -548,13 +548,6 @@ class _DependencyFileGenerator(_Jinja2FileGenerator):
         self._render_file(template_path, output_path, options={
             'requirements_path': requirements_path
         })
-
-    def _guess_requirements_path(self, project_dir: str) -> str:
-        # TODO: Handle more complex cases
-        files_list = os.listdir(project_dir)
-        if self._REQUIREMENTS in files_list:
-            return self._REQUIREMENTS
-        return ''
 
 
 class _YAMLFileGenerator(_Jinja2FileGenerator):

@@ -72,3 +72,20 @@ def is_valid_django_project(django_directory_path: str) -> bool:
     # TODO: handle more complex cases.
     manage_py_path = os.path.join(django_directory_path, 'manage.py')
     return os.path.exists(manage_py_path)
+
+
+def guess_requirements_path(django_directory_path: str) -> str:
+    """Returns the absolute path of requirements.txt.
+
+    Args:
+        django_directory_path: Absolute path of a Django project.
+
+    Returns:
+        Absolute path of requirements.txt of the given Django project.
+    """
+
+    # TODO: Handle more complex cases
+    files_list = os.listdir(django_directory_path)
+    if 'requirements.txt' in files_list:
+        return os.path.join(django_directory_path, 'requirements.txt')
+    return ''

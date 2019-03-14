@@ -51,3 +51,27 @@ class UtilTest(unittest.TestCase):
         with self.assertRaises(utils.ProjectContentError):
             utils.get_django_project_name(project_dir)
         shutil.rmtree(project_dir)
+
+
+class GuessRequirementsPathTest(unittest.TestCase):
+    """Unit test for guess_requirements_path."""
+
+    def setUp(self):
+        super().setUp()
+        self._project_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        super().tearDown()
+        shutil.rmtree(self._project_dir)
+
+    def test_requirements_txt_exist(self):
+        requirements_file_path = os.path.join(self._project_dir,
+                                              'requirements.txt')
+        with open(requirements_file_path, 'wt') as f:
+            f.write('')
+        self.assertEqual(
+            utils.guess_requirements_path(self._project_dir),
+            requirements_file_path)
+
+    def test_requirements_txt_not_exist(self):
+        self.assertEqual(utils.guess_requirements_path(self._project_dir), '')
