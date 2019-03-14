@@ -419,7 +419,7 @@ class DependencyFileGeneratorTest(FileGeneratorTest):
             dependency_file_content = dependency_file.read()
             self.assertIn('-r ' + self._generator._REQUIREMENTS_GOOGLE,
                           dependency_file_content)
-            self.assertIn('-r ' + self._generator._REQUIREMENTS,
+            self.assertIn('-r ' + self._generator._REQUIREMENTS_USER_RENAME,
                           dependency_file_content)
 
     def test_generate_cloud_dependencies_user_requirements_not_found(self):

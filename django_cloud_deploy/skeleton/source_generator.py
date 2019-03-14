@@ -20,10 +20,11 @@ import sys
 from typing import Any, Dict, List, Optional, Set
 
 import django
-from django.core.management import utils
+from django.core.management import utils as django_utils
 from django.utils import version
 from django_cloud_deploy import crash_handling
 from django_cloud_deploy.skeleton import requirements_parser
+from django_cloud_deploy.skeleton import utils
 import jinja2
 
 
@@ -314,7 +315,7 @@ class _SettingsFileGenerator(_Jinja2FileGenerator):
             'project_id': project_id,
             'project_name': project_name,
             'docs_version': version.get_docs_version(),
-            'secret_key': utils.get_random_secret_key(),
+            'secret_key': django_utils.get_random_secret_key(),
             'database_name': database_name,
             'bucket_name': cloud_storage_bucket_name,
             'cloud_sql_connection': cloud_sql_connection
@@ -368,7 +369,7 @@ class _SettingsFileGenerator(_Jinja2FileGenerator):
             'project_id': project_id,
             'project_name': project_name,
             'docs_version': version.get_docs_version(),
-            'secret_key': utils.get_random_secret_key(),
+            'secret_key': django_utils.get_random_secret_key(),
             'database_name': database_name,
             'bucket_name': cloud_storage_bucket_name,
             'cloud_sql_connection': cloud_sql_connection
@@ -483,18 +484,29 @@ class _DependencyFileGenerator(_Jinja2FileGenerator):
         absolute_requirements_path = os.path.join(
             project_dir, requirements_path)
 
-        # Rename user's existing requirements.txt to requirements-user.txt
-        # This is because app engine requires a file named exactly
-        # "requirements.txt" to exist and contain all dependencies.
         existing_requirements = set()
+        requirements_relative_path = None
         if requirements_path:
             existing_requirements = requirements_parser.parse(
                 absolute_requirements_path)
-            requirements_output_path = os.path.join(
-                project_dir, self._REQUIREMENTS_USER_RENAME)
-            os.replace(absolute_requirements_path, requirements_output_path)
+
+            # Rename user's existing requirements.txt to requirements-user.txt
+            # This is because app engine requires a file named exactly
+            # "requirements.txt" to exist and contain all dependencies.
+            if requirements_path == os.path.join(
+                    project_dir, 'requirements.txt'):
+                requirements_output_path = os.path.join(
+                    project_dir, self._REQUIREMENTS_USER_RENAME)
+                os.replace(absolute_requirements_path, requirements_output_path)
+                requirements_path = requirements_output_path
+
+            # In requirements.txt we have "-r <requirements-user.txt>"
+            # Using relative path instead of absolute path in requirements.txt
+            # is more clear and more portable
+            requirements_relative_path = os.path.relpath(
+                requirements_path, project_dir)
         self._generate_requirements_google(project_dir, existing_requirements)
-        self._generate_requirements(project_dir, requirements_output_path)
+        self._generate_requirements(project_dir, requirements_relative_path)
 
     def _generate_requirements_google(
             self, project_dir: str,
