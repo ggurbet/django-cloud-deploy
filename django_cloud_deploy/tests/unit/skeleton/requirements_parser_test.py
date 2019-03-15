@@ -33,15 +33,12 @@ class RequirementsParserTest(unittest.TestCase):
         shutil.rmtree(self._project_dir)
 
     def test_parse_single_line(self):
-        requirements = [
-            'six', 'urllib3', 'Django', 'backoff', 'mysqlclient', 'gunicorn',
-            'wheel', 'google-cloud-logging'
-        ]
-        lines = [
-            'six==1.2', 'urllib3>=4.5.6', 'Django<=7.8', 'backoff',
-            'mysqlclient~=1.3.4', 'gunicorn[1,7.8, 2.3.4]', 'wheel   == 1.2.3',
-            'google-cloud-logging; sys_platform == \'win32\''
-        ]
+        requirements = ['six', 'urllib3', 'Django', 'backoff', 'mysqlclient',
+                        'gunicorn', 'wheel', 'google-cloud-logging']
+        lines = ['six==1.2', 'urllib3>=4.5.6', 'Django<=7.8', 'backoff',
+                 'mysqlclient~=1.3.4', 'gunicorn[1,7.8, 2.3.4]',
+                 'wheel   == 1.2.3',
+                 'google-cloud-logging; sys_platform == \'win32\'']
         for i in range(len(lines)):
             self.assertEqual(
                 requirements_parser.parse_line(lines[i]), requirements[i])
@@ -60,8 +57,7 @@ class RequirementsParserTest(unittest.TestCase):
     def test_parse_requirements_with_comments(self):
         requirements = ['six', 'urllib3', 'Django', 'backoff']
         lines = [
-            '"""This is a comment."""', 'six==1.2', '# Comment',
-            'urllib3>=4.5.6', 'Django<=7.8', 'backoff'
+            'six==1.2', '# Comment', 'urllib3>=4.5.6', 'Django<=7.8', 'backoff'
         ]
         requirements_file_path = os.path.join(self._project_dir,
                                               'requirements.txt')

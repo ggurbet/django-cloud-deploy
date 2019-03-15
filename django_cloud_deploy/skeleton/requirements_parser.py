@@ -20,14 +20,16 @@ from typing import Set
 def parse_line(line: str) -> str:
     """Parse a single line in requirements.txt.
 
-    Note that this function only returns what are the requirements. It will not
-    return the version restrictions.
+    Note that this function only returns the package that is required, without
+    version restrictions
+    e.g. "google-cloud-bigquery>1.2.3" => "google-cloud-bigquery".
 
     Args:
         line: A line in requirements.txt.
 
     Returns:
-        What kind of requirement does this line contains.
+        The package requirement contained on the line
+        e.g. "google-cloud-bigquery".
     """
 
     # See
@@ -38,14 +40,15 @@ def parse_line(line: str) -> str:
 def parse(path: str) -> Set[str]:
     """Parses requirements given the absolute path of a requirements.txt.
 
-    Note that this function only returns what are the requirements. It will not
-    return the version restrictions.
+    Note that this function only returns the package that is required, without
+    version restrictions
+    e.g. "google-cloud-bigquery>1.2.3" => "google-cloud-bigquery".
 
     Args:
         path: Absolute path of a requirements.txt.
 
     Returns:
-        A list of requirements from the requirements.txt.
+        A list of packages contained in the given "requirements.txt".
     """
 
     results = set()
@@ -57,9 +60,13 @@ def parse(path: str) -> Set[str]:
         lines = requirements_file.read().splitlines()
         for line in lines:
             line = line.strip()
-            if not line or line.startswith('#') or line.startswith('"""'):
+            # This does not handle the full grammar, for example, line
+            # continuation, package from a url, or package from a local path
+            # TODO: Support more kinds of packages
+            if not line or line.startswith('#'):
                 continue
             elif line.startswith('-r'):
+                # This will install a list of requirements specified in a file
                 sub_requirements_path = line.split(' ')[-1]
                 results = results.union(
                     parse(os.path.join(dir_path, sub_requirements_path)))
