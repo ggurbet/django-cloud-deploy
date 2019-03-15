@@ -609,6 +609,7 @@ class DjangoSourceFileGeneratorTest(FileGeneratorTest):
                                      'fake_db_password')
         self._test_project_structure(project_name, app_name, project_dir)
 
+    @unittest.mock('subprocess.check_call')
     def test_generate_missing_source_files(self):
         project_id = project_name = 'test_generate_missing_source_files'
         app_name = 'existing_app'
