@@ -16,8 +16,7 @@
 See https://gcloud-python.readthedocs.io/en/latest/resource-manager/api.html
 """
 
-import subprocess
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import backoff
 import google_auth_httplib2
@@ -77,16 +76,27 @@ class ProjectClient(object):
         request = self._cloudresourcemanager_service.projects().get(
             projectId=project_id)
         try:
-            return request.execute()
+            return request.execute(num_retries=5)
         except errors.HttpError as e:
             raise e
+
+    def get_project_permissions(self, project_id: str) -> List[Dict[str, Any]]:
+        """Returns a list of permissions from the project"""
+        request = self._cloudresourcemanager_service.projects().getIamPolicy(
+            resource=project_id, body={})
+        try:
+            response = request.execute(num_retries=5)
+            return response.get('bindings', [])
+        except errors.HttpError as e:
+            if e.resp.status in [403, 404]:
+                return []
 
     def _is_google_account(self) -> bool:
         """Returns whether the user logged in with a google.com account."""
         body = {'filter': 'domain:google.com'}
         request = self._cloudresourcemanager_service.organizations().search(
             body=body)
-        response = request.execute()
+        response = request.execute(num_retries=5)
 
         # If we have non-empty result, then we are sure the user has access to
         # 'google.com' organization
@@ -105,7 +115,7 @@ class ProjectClient(object):
         request = self._cloudresourcemanager_service.projects().create(
             body=body)
         try:
-            response = request.execute()
+            response = request.execute(num_retries=5)
         except errors.HttpError as e:
             if e.resp.status == 409:
                 raise ProjectExistsError(
