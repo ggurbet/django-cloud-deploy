@@ -19,6 +19,7 @@ from django_cloud_deploy import tool_requirements
 from django_cloud_deploy import workflow
 from django_cloud_deploy.cli import io
 from django_cloud_deploy.cli import prompt
+from django_cloud_deploy.utils import webbrowser
 
 
 def add_arguments(parser):
@@ -160,8 +161,9 @@ def main(args: argparse.Namespace, console: io.IO = io.ConsoleIO()):
             actual_parameters['project_id']))
 
     survey_prompt = prompt.TakeSurveyPrompt()
-    survey_prompt.prompt(console)
-
+    do_survey = survey_prompt.prompt(console)
+    if do_survey:
+        webbrowser.open_url(prompt.TakeSurveyPrompt.SURVEY_LINK)
     return admin_url
 
 

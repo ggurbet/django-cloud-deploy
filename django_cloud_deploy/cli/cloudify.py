@@ -20,6 +20,7 @@ from django_cloud_deploy import workflow
 from django_cloud_deploy.cli import io
 from django_cloud_deploy.cli import prompt
 from django_cloud_deploy.skeleton import utils
+from django_cloud_deploy.utils import webbrowser
 
 
 def add_arguments(parser):
@@ -154,10 +155,15 @@ def main(args: argparse.Namespace, console: io.IO = io.ConsoleIO()):
             cloud_storage_bucket_name=actual_parameters['bucket_name'],
             backend=args.backend,
             deploy_existing_django_project=True)
-        return admin_url
     except workflow.ProjectExistsError:
         console.error('A project with id "{}" already exists'.format(
             actual_parameters['project_id']))
+
+    survey_prompt = prompt.TakeSurveyPrompt()
+    do_survey = survey_prompt.prompt(console)
+    if do_survey:
+        webbrowser.open_url(prompt.TakeSurveyPrompt.SURVEY_LINK)
+    return admin_url
 
 
 if __name__ == '__main__':
