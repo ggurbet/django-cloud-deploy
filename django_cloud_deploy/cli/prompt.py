@@ -1137,7 +1137,11 @@ class DjangoSuperuserEmailPrompt(StringTemplatePrompt):
 
 
 class TakeSurveyPrompt(object):
-    """Ask the user whether they would like to take a survey."""
+    """Ask the user whether they would like to take a survey.
+
+    This class does not inherit from Prompt because it does not follow the
+    contract for being a prompt.
+    """
 
     SURVEY_LINK = 'https://google.qualtrics.com/jfe/form/SV_3wwUubKBJnC7Fxr'
 
