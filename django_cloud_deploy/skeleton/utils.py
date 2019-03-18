@@ -111,8 +111,7 @@ def guess_settings_path(django_directory_path: str) -> str:
             return ''
 
         # The matching result will be like
-        # "os.environ.setdefault('DJANGO_SETTINGS_MODULE',
-        #                    \n  'djangoproject.settings')"
+        # "os.environ.setdefault('DJANGO_SETTINGS_MODULE', \n'mysite.settings')"
         # Find strings between "" or ''
         raw_settings_module = re.findall(
             r'[\"\'][\w+\.]+[\"\']', settings_module_line.group(0))
