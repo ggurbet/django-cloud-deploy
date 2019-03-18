@@ -531,9 +531,8 @@ class _DependencyFileGenerator(_Jinja2FileGenerator):
             google_requirements -= existing_requirements
 
         with open(template_path) as requirements_file:
-            lines = requirements_file.read().splitlines()
             lines = [
-                line for line in lines
+                line for line in requirements_file.read().splitlines()
                 if requirements_parser.parse_line(line) in google_requirements
             ]
 
