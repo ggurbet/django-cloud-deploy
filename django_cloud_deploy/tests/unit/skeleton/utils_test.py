@@ -74,14 +74,13 @@ class GuessSettingsPath(unittest.TestCase):
             os.path.join(self.project_dir, self.project_name, 'settings.py'))
 
     def test_guess_prod_settings_file(self):
-        settings_path = os.path.join(
-            self.project_dir, self.project_name, 'settings.py')
-        prod_settings_path = os.path.join(
-            self.project_dir, self.project_name, 'settings_prod.py')
+        settings_path = os.path.join(self.project_dir, self.project_name,
+                                     'settings.py')
+        prod_settings_path = os.path.join(self.project_dir, self.project_name,
+                                          'settings_prod.py')
         shutil.copyfile(settings_path, prod_settings_path)
         self.assertEqual(
-            utils.guess_settings_path(self.project_dir),
-            prod_settings_path)
+            utils.guess_settings_path(self.project_dir), prod_settings_path)
 
     def test_manage_py_not_found(self):
         os.remove(os.path.join(self.project_dir, 'manage.py'))
@@ -124,13 +123,13 @@ class GuessSettingsPath(unittest.TestCase):
 
     def test_settings_in_subdirectory(self):
         os.mkdir(os.path.join(self.project_dir, self.project_name, 'settings'))
-        settings_path = os.path.join(
-            self.project_dir, self.project_name, 'settings.py')
-        new_settings_path = os.path.join(
-            self.project_dir, self.project_name, 'settings', 'dev.py')
+        settings_path = os.path.join(self.project_dir, self.project_name,
+                                     'settings.py')
+        new_settings_path = os.path.join(self.project_dir, self.project_name,
+                                         'settings', 'dev.py')
         shutil.move(settings_path, new_settings_path)
-        prod_settings_path = os.path.join(
-            self.project_dir, self.project_name, 'settings', 'prod.py')
+        prod_settings_path = os.path.join(self.project_dir, self.project_name,
+                                          'settings', 'prod.py')
         shutil.copyfile(new_settings_path, prod_settings_path)
         manage_py_path = os.path.join(self.project_dir, 'manage.py')
 
