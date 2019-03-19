@@ -16,16 +16,17 @@
 
 from django_cloud_deploy.cli import io
 from django_cloud_deploy.cli import prompt
+from django_cloud_deploy.utils import webbrowser
 
 
-SURVEY_LINK = 'https://google.qualtrics.com/jfe/form/SV_3wwUubKBJnC7Fxr'
+_SURVEY_LINK = 'https://google.qualtrics.com/jfe/form/SV_3wwUubKBJnC7Fxr'
 
 
 def prompt_for_survey(console: io.IO) -> bool:
     """Ask users to take a survey.
 
     If the user would like to take the survey, then the method will open
-    their web browser and direct them to an existing Qualtics survery.
+    their web browser and direct them to an existing Qualtrics survey.
 
     Args:
         console: Object to use for user I/O.
@@ -36,4 +37,6 @@ def prompt_for_survey(console: io.IO) -> bool:
     msg = ('Would you like to take a survey to provide your feedback for '
            'the deployment process? [y/N]')
 
-    return prompt.binary_prompt(msg, console, default='N')
+    do_survey = prompt.binary_prompt(msg, console, default='N')
+    if do_survey:
+        webbrowser.open_url(_SURVEY_LINK)

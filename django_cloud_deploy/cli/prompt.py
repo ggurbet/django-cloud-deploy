@@ -142,8 +142,7 @@ def _multiple_choice_validate(s: str, len_options: int):
             1, len_options + 1))
 
 
-def binary_prompt(question: str,
-                  console: io.IO,
+def binary_prompt(question: str, console: io.IO,
                   default: Optional[bool] = None) -> bool:
     """Used to prompt user to choose from a yes or no question.
 
