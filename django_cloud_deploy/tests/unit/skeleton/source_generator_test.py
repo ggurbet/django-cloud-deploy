@@ -470,8 +470,8 @@ class DependencyFileGeneratorTest(FileGeneratorTest):
         with open(user_requirements_file_path, 'wt') as f:
             f.write('\n'.join(packages))
         self._generator.generate_from_existing(self._project_dir, project_name)
-        requirements_file_path = os.path.join(
-            self._project_dir, self._generator._REQUIREMENTS)
+        requirements_file_path = os.path.join(self._project_dir,
+                                              self._generator._REQUIREMENTS)
         with open(requirements_file_path) as f:
             file_content = f.read()
             self.assertIn('-r ' + self._generator._REQUIREMENTS_GOOGLE,
