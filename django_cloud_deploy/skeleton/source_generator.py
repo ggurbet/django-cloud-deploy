@@ -472,15 +472,26 @@ class _DependencyFileGenerator(_Jinja2FileGenerator):
         self._generate_requirements(project_dir)
 
     def generate_from_existing(self, project_dir: str, project_name: str):
-        """Generate requirements.txt.
+        """Generate requirements.txt from user's existing requirements.txt.
 
-        Dependencies are hardcoded.
+        The steps are as the follows:
+            1. Guess the path of requirements.txt given the path of a Django
+               project
+            2. If requirements.txt exist, parse the packages included in it and
+               rename
+            3. Generate "requirements-google.txt" based on existing
+               requirements.txt if it exist.
+            4. Generate "requirements.txt" which recursively install
+               "requirements-google.txt" and ""
 
         Args:
             project_dir: The destination directory path to put requirements.txt.
             project_name: Name of the Django project. e.g. mysite.
         """
 
+        # TODO: Move this to a prompt for the path of requirements.txt, which
+        # will guess a path and use it as a default value for the prompt.
+        # Otherwise it cannot handle more customized cases
         requirements_path = utils.guess_requirements_path(
             project_dir, project_name)
         existing_requirements = set()
@@ -492,8 +503,11 @@ class _DependencyFileGenerator(_Jinja2FileGenerator):
                 absolute_requirements_path)
 
             # Rename user's existing requirements.txt to requirements-user.txt
+            # only when it is <project_dir>/requirements.txt
             # This is because app engine requires a file named exactly
             # "requirements.txt" to exist and contain all dependencies.
+            # We want this "requirements.txt" to include both user's
+            # requirements and our requirements
             if requirements_path == os.path.join(
                     project_dir, 'requirements.txt'):
                 requirements_output_path = os.path.join(

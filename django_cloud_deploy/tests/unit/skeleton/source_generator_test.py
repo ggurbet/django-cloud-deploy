@@ -382,45 +382,45 @@ class DependencyFileGeneratorTest(FileGeneratorTest):
     def test_generate_google_dependencies(self):
         # TODO: This is a change-detector test. It should be modified to not
         # check for exact dependencies.
-        dependencies = ('Django', 'mysqlclient', 'wheel', 'gunicorn',
-                        'psycopg2-binary', 'google-cloud-logging',
-                        'google-cloud-storage', 'google-api-python-client')
+        packages = ('Django', 'mysqlclient', 'wheel', 'gunicorn',
+                    'psycopg2-binary', 'google-cloud-logging',
+                    'google-cloud-storage', 'google-api-python-client')
         self._generator.generate_new(self._project_dir)
-        dependency_file_path = os.path.join(
+        requirements_file_path = os.path.join(
             self._project_dir, self._generator._REQUIREMENTS_GOOGLE)
-        with open(dependency_file_path) as dependency_file:
-            dependency_file_content = dependency_file.read()
-            for dependency in dependencies:
-                self.assertIn(dependency, dependency_file_content)
+        with open(requirements_file_path) as f:
+            file_content = f.read()
+            for package in packages:
+                self.assertIn(package, file_content)
 
     def test_generate_cloud_dependencies(self):
         self._generator.generate_new(self._project_dir)
-        dependency_file_path = os.path.join(self._project_dir,
-                                            self._generator._REQUIREMENTS)
-        with open(dependency_file_path) as dependency_file:
-            dependency_file_content = dependency_file.read()
+        requirements_file_path = os.path.join(self._project_dir,
+                                              self._generator._REQUIREMENTS)
+        with open(requirements_file_path) as f:
+            file_content = f.read()
             self.assertIn('-r ' + self._generator._REQUIREMENTS_GOOGLE,
-                          dependency_file_content)
+                          file_content)
 
     def test_generate_cloud_dependencies_from_existing(self):
         project_name = 'test_cloud_dependencies_from_existing'
-        dependencies = ['six', 'urllib3']
+        packages = ['six', 'urllib3']
         # Create a Django project to make the directory looks similar with an
         # existing Django project
         management.call_command('startproject', project_name, self._project_dir)
-        dependency_file_path = os.path.join(self._project_dir,
-                                            self._generator._REQUIREMENTS)
-        with open(dependency_file_path, 'wt') as f:
-            f.write('\n'.join(dependencies))
+        requirements_file_path = os.path.join(self._project_dir,
+                                              self._generator._REQUIREMENTS)
+        with open(requirements_file_path, 'wt') as f:
+            f.write('\n'.join(packages))
         self._generator.generate_from_existing(self._project_dir, project_name)
-        dependency_file_path = os.path.join(self._project_dir,
-                                            self._generator._REQUIREMENTS)
-        with open(dependency_file_path) as dependency_file:
-            dependency_file_content = dependency_file.read()
+        requirements_file_path = os.path.join(self._project_dir,
+                                              self._generator._REQUIREMENTS)
+        with open(requirements_file_path) as f:
+            file_content = f.read()
             self.assertIn('-r ' + self._generator._REQUIREMENTS_GOOGLE,
-                          dependency_file_content)
+                          file_content)
             self.assertIn('-r ' + self._generator._REQUIREMENTS_USER_RENAME,
-                          dependency_file_content)
+                          file_content)
 
     def test_generate_cloud_dependencies_user_requirements_not_found(self):
         project_name = 'test_cloud_dependencies_from_existing'
@@ -428,31 +428,57 @@ class DependencyFileGeneratorTest(FileGeneratorTest):
         # existing Django project
         management.call_command('startproject', project_name, self._project_dir)
         self._generator.generate_from_existing(self._project_dir, project_name)
-        dependency_file_path = os.path.join(self._project_dir,
-                                            self._generator._REQUIREMENTS)
-        with open(dependency_file_path) as dependency_file:
-            dependency_file_content = dependency_file.read()
+        requirements_file_path = os.path.join(self._project_dir,
+                                              self._generator._REQUIREMENTS)
+        with open(requirements_file_path) as f:
+            file_content = f.read()
             self.assertIn('-r ' + self._generator._REQUIREMENTS_GOOGLE,
-                          dependency_file_content)
+                          file_content)
             self.assertNotIn('-r ' + self._generator._REQUIREMENTS,
-                             dependency_file_content)
+                             file_content)
 
     def test_generate_cloud_dependencies_duplicate_requirements(self):
         project_name = 'test_cloud_dependencies_from_existing'
-        dependencies = ['Django']
+
+        # "Django" is also a package required by us. We want to make sure
+        # requirements-google.txt does not include this package
+        packages = ['Django']
+
         # Create a Django project to make the directory looks similar with an
         # existing Django project
         management.call_command('startproject', project_name, self._project_dir)
-        dependency_file_path = os.path.join(self._project_dir,
-                                            self._generator._REQUIREMENTS)
-        with open(dependency_file_path, 'wt') as f:
-            f.write('\n'.join(dependencies))
+        requirements_file_path = os.path.join(self._project_dir,
+                                              self._generator._REQUIREMENTS)
+        with open(requirements_file_path, 'wt') as f:
+            f.write('\n'.join(packages))
         self._generator.generate_from_existing(self._project_dir, project_name)
-        dependency_file_path = os.path.join(
+        requirements_file_path = os.path.join(
             self._project_dir, self._generator._REQUIREMENTS_GOOGLE)
-        with open(dependency_file_path) as dependency_file:
-            dependency_file_content = dependency_file.read()
-            self.assertNotIn('Django', dependency_file_content)
+        with open(requirements_file_path) as f:
+            file_content = f.read()
+            self.assertNotIn('Django', file_content)
+
+    def test_generate_requirements_in_subdirectory(self):
+        # <django_directory>/requirements/prod.txt exist.
+        # generate_from_existing should not rename this file
+        project_name = 'test_generate_requirements_in_subdirectory'
+        packages = ['six', 'urllib3']
+        management.call_command('startproject', project_name, self._project_dir)
+        requirements_dir = os.path.join(self._project_dir, 'requirements')
+        os.mkdir(requirements_dir)
+        user_requirements_file_path = os.path.join(requirements_dir, 'prod.txt')
+        with open(user_requirements_file_path, 'wt') as f:
+            f.write('\n'.join(packages))
+        self._generator.generate_from_existing(self._project_dir, project_name)
+        requirements_file_path = os.path.join(
+            self._project_dir, self._generator._REQUIREMENTS)
+        with open(requirements_file_path) as f:
+            file_content = f.read()
+            self.assertIn('-r ' + self._generator._REQUIREMENTS_GOOGLE,
+                          file_content)
+            self.assertNotIn('-r ' + self._generator._REQUIREMENTS,
+                             file_content)
+            self.assertIn('-r requirements/prod.txt', file_content)
 
     def test_generate_twice(self):
         self._generator.generate_new(self._project_dir)
