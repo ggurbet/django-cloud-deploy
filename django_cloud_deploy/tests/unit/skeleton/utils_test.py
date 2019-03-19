@@ -84,12 +84,12 @@ class GuessSettingsPath(unittest.TestCase):
 
     def test_manage_py_not_found(self):
         os.remove(os.path.join(self.project_dir, 'manage.py'))
-        self.assertEqual(len(utils.guess_settings_path(self.project_dir)), 0)
+        self.assertIsNone(utils.guess_settings_path(self.project_dir))
 
     def test_settings_module_in_manage_py_but_not_found(self):
         os.remove(
             os.path.join(self.project_dir, self.project_name, 'settings.py'))
-        self.assertEqual(len(utils.guess_settings_path(self.project_dir)), 0)
+        self.assertIsNone(utils.guess_settings_path(self.project_dir))
 
     def test_multiline_settings_module(self):
         manage_py_path = os.path.join(self.project_dir, 'manage.py')

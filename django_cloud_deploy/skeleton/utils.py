@@ -11,10 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Utility functions related to Django project source files."""
 
 import os
 import re
+from typing import Optional
 
 
 class ProjectContentError(Exception):
@@ -76,7 +78,7 @@ def is_valid_django_project(django_directory_path: str) -> bool:
     return os.path.exists(manage_py_path)
 
 
-def guess_settings_path(django_directory_path: str) -> str:
+def guess_settings_path(django_directory_path: str) -> Optional[str]:
     """Guess the absolute path of settings file of the django project.
 
     The logic is as the follows:
@@ -90,13 +92,13 @@ def guess_settings_path(django_directory_path: str) -> str:
         django_directory_path: Absolute path of a Django project.
 
     Returns:
-        Absolute path of settings.py of the given Django project. If cannot find
-        it, return an empty string.
+        Absolute path of settings.py of the given Django project. If it cannot
+        be found, return None.
     """
 
     manage_py_path = os.path.join(django_directory_path, 'manage.py')
     if not os.path.exists(manage_py_path):
-        return ''
+        return None
 
     with open(manage_py_path) as f:
         file_content = f.read()
@@ -108,7 +110,7 @@ def guess_settings_path(django_directory_path: str) -> str:
         settings_module_line = re.search(
             r'os\.environ\.setdefault\([^\)]+,[^\)]+\)', file_content)
         if not settings_module_line:
-            return ''
+            return None
 
         # The matching result will be like
         # "os.environ.setdefault('DJANGO_SETTINGS_MODULE', \n'mysite.settings')"
@@ -122,7 +124,8 @@ def guess_settings_path(django_directory_path: str) -> str:
     absolute_settings_path = os.path.join(
         django_directory_path, relative_settings_path)
     if not os.path.exists(absolute_settings_path):
-        return ''
+        return None
+
     settings_dir = os.path.dirname(absolute_settings_path)
     files_list = os.listdir(settings_dir)
     for file in files_list:
