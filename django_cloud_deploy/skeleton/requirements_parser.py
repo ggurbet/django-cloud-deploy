@@ -11,7 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """A module help parse requirements.txt."""
+
 import os
 import re
 from typing import Set
@@ -48,7 +50,7 @@ def parse(path: str) -> Set[str]:
         path: Absolute path of a requirements.txt.
 
     Returns:
-        A list of packages contained in the given "requirements.txt".
+        The set of packages contained in the given "requirements.txt".
     """
 
     results = set()

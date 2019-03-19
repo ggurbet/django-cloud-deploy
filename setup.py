@@ -28,7 +28,7 @@ with open(os.path.join(here, 'README.md'), 'r') as fh:
 
 
 install_requires = [
-    'urllib3==1.23',  # https://github.com/requests/requests/issues/4830
+    'urllib3>=1.23,<2',
     'oauth2client>=4.1.2',
     'django>=2.1.5,<2.2',
     'backoff>=1.8.0',
@@ -46,6 +46,7 @@ install_requires = [
     'google-cloud-logging>=1.8.0',
     'progressbar2>=3.38.0',
     'portpicker>=1.2.0',
+    'PyYAML>=5.1',
 ]
 
 
