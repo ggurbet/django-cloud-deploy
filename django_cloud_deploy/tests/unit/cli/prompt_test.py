@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Tests for django_cloud_deploy.cli.prompt."""
 
 import os
@@ -761,8 +760,8 @@ class DjangoSettingsPathPromptTest(absltest.TestCase):
     def test_prompt(self):
         test_io = io.TestIO()
 
-        expected_settings_path = os.path.join(
-            self.project_dir, self.project_name, 'settings.py')
+        expected_settings_path = os.path.join(self.project_dir,
+                                              self.project_name, 'settings.py')
         test_io.answers.append(expected_settings_path)
         args = self.django_settings_path_prompt.prompt(
             test_io,
@@ -777,8 +776,8 @@ class DjangoSettingsPathPromptTest(absltest.TestCase):
     def test_settings_file_not_found(self):
         test_io = io.TestIO()
 
-        expected_settings_path = os.path.join(
-            self.project_dir, self.project_name, 'settings.py')
+        expected_settings_path = os.path.join(self.project_dir,
+                                              self.project_name, 'settings.py')
         test_io.answers.append('<invalid_path>')
         test_io.answers.append(expected_settings_path)
         args = self.django_settings_path_prompt.prompt(
@@ -794,10 +793,10 @@ class DjangoSettingsPathPromptTest(absltest.TestCase):
     def test_settings_file_not_a_python_file(self):
         test_io = io.TestIO()
 
-        invalid_settings_path = os.path.join(
-            self.project_dir, self.project_name, 'settings')
-        expected_settings_path = os.path.join(
-            self.project_dir, self.project_name, 'settings.py')
+        invalid_settings_path = os.path.join(self.project_dir,
+                                             self.project_name, 'settings')
+        expected_settings_path = os.path.join(self.project_dir,
+                                              self.project_name, 'settings.py')
         shutil.copyfile(expected_settings_path, invalid_settings_path)
 
         test_io.answers.append(invalid_settings_path)
@@ -817,8 +816,8 @@ class DjangoSettingsPathPromptTest(absltest.TestCase):
 
         invalid_settings_path = os.path.join(
             self.project_dir, self.project_name, 'settings_invalid.py')
-        expected_settings_path = os.path.join(
-            self.project_dir, self.project_name, 'settings.py')
+        expected_settings_path = os.path.join(self.project_dir,
+                                              self.project_name, 'settings.py')
         shutil.copyfile(expected_settings_path, invalid_settings_path)
         with open(invalid_settings_path) as f:
             file_content = f.read()

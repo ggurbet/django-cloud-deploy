@@ -1195,21 +1195,20 @@ class DjangoSettingsPathPrompt(StringTemplatePrompt):
             raise ValueError(
                 '["{}"] is not a .py file.'.format(django_settings_path))
 
-        module_relative_path = os.path.relpath(
-            django_settings_path, project_dir)
+        module_relative_path = os.path.relpath(django_settings_path,
+                                               project_dir)
 
         # Remove ".py" at the end.
         module_name = module_relative_path[:-3].replace('/', '.')
         sys.path.append(project_dir)
-        spec = importlib.util.spec_from_file_location(
-            module_name, django_settings_path)
+        spec = importlib.util.spec_from_file_location(module_name,
+                                                      django_settings_path)
         module = importlib.util.module_from_spec(spec)
         try:
             spec.loader.exec_module(module)
         except Exception as e:
-            raise ValueError(
-                ('Not able to load Django project settings module '
-                 'on {}'.format(django_settings_path))) from e
+            raise ValueError(('Not able to load Django project settings module '
+                              'on {}'.format(django_settings_path))) from e
         finally:
             sys.path.pop()
 
