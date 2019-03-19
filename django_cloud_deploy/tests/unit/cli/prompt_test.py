@@ -11,19 +11,25 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Tests for django_cloud_deploy.cli.prompt."""
 
+import os
+import shutil
+import sys
 import tempfile
 from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
 
+from django.core import management
+
 from django_cloud_deploy import workflow
 from django_cloud_deploy.cli import io
 from django_cloud_deploy.cli import prompt
-from django_cloud_deploy.cloudlib import project
 from django_cloud_deploy.cloudlib import billing
+from django_cloud_deploy.cloudlib import project
 
 from google.auth import credentials
 
@@ -731,6 +737,105 @@ class BillingPromptTest(absltest.TestCase):
         billing_name = args['billing_account_name']
         self.assertEqual(billing_name, _SINGLE_FAKE_ACCOUNT[0]['name'])
         self.assertEqual(len(test_io.answers), 0)  # All answers used.
+
+
+class DjangoSettingsPathPromptTest(absltest.TestCase):
+    """Tests for prompt.DjangoSettingsPathPrompt."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.django_settings_path_prompt = prompt.DjangoSettingsPathPrompt()
+
+    def setUp(self):
+        super().setUp()
+        self.project_name = 'mysite'
+        self.project_dir = tempfile.mkdtemp()
+        management.call_command('startproject', self.project_name,
+                                self.project_dir)
+
+    def tearDown(self):
+        super().tearDown()
+        shutil.rmtree(self.project_dir)
+
+    def test_prompt(self):
+        test_io = io.TestIO()
+
+        expected_settings_path = os.path.join(
+            self.project_dir, self.project_name, 'settings.py')
+        test_io.answers.append(expected_settings_path)
+        args = self.django_settings_path_prompt.prompt(
+            test_io,
+            '[2/2]',
+            {'django_directory_path': self.project_dir},
+        )
+        django_settings_path = args.get('django_settings_path', None)
+        self.assertEqual(django_settings_path, expected_settings_path)
+        self.assertEmpty(test_io.answers)  # All answers used.
+        self.assertNotIn(self.project_dir, sys.path)
+
+    def test_settings_file_not_found(self):
+        test_io = io.TestIO()
+
+        expected_settings_path = os.path.join(
+            self.project_dir, self.project_name, 'settings.py')
+        test_io.answers.append('<invalid_path>')
+        test_io.answers.append(expected_settings_path)
+        args = self.django_settings_path_prompt.prompt(
+            test_io,
+            '[2/2]',
+            {'django_directory_path': self.project_dir},
+        )
+        django_settings_path = args.get('django_settings_path', None)
+        self.assertEqual(django_settings_path, expected_settings_path)
+        self.assertEmpty(test_io.answers)  # All answers used.
+        self.assertNotIn(self.project_dir, sys.path)
+
+    def test_settings_file_not_a_python_file(self):
+        test_io = io.TestIO()
+
+        invalid_settings_path = os.path.join(
+            self.project_dir, self.project_name, 'settings')
+        expected_settings_path = os.path.join(
+            self.project_dir, self.project_name, 'settings.py')
+        shutil.copyfile(expected_settings_path, invalid_settings_path)
+
+        test_io.answers.append(invalid_settings_path)
+        test_io.answers.append(expected_settings_path)
+        args = self.django_settings_path_prompt.prompt(
+            test_io,
+            '[2/2]',
+            {'django_directory_path': self.project_dir},
+        )
+        django_settings_path = args.get('django_settings_path', None)
+        self.assertEqual(django_settings_path, expected_settings_path)
+        self.assertEmpty(test_io.answers)  # All answers used.
+        self.assertNotIn(self.project_dir, sys.path)
+
+    def test_settings_file_invalid(self):
+        test_io = io.TestIO()
+
+        invalid_settings_path = os.path.join(
+            self.project_dir, self.project_name, 'settings_invalid.py')
+        expected_settings_path = os.path.join(
+            self.project_dir, self.project_name, 'settings.py')
+        shutil.copyfile(expected_settings_path, invalid_settings_path)
+        with open(invalid_settings_path) as f:
+            file_content = f.read()
+        with open(invalid_settings_path, 'wt') as f:
+            file_content = file_content + '\nprint("12345"  # Invalid print'
+            f.write(file_content)
+        test_io.answers.append(invalid_settings_path)
+        test_io.answers.append(expected_settings_path)
+        args = self.django_settings_path_prompt.prompt(
+            test_io,
+            '[2/2]',
+            {'django_directory_path': self.project_dir},
+        )
+        django_settings_path = args.get('django_settings_path', None)
+        self.assertEqual(django_settings_path, expected_settings_path)
+        self.assertEmpty(test_io.answers)  # All answers used.
+        self.assertNotIn(self.project_dir, sys.path)
 
 
 if __name__ == '__main__':
