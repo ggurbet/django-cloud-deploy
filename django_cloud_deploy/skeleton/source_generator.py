@@ -482,7 +482,7 @@ class _DependencyFileGenerator(_Jinja2FileGenerator):
             3. Generate "requirements-google.txt" based on existing
                requirements.txt if it exist.
             4. Generate "requirements.txt" which recursively install
-               "requirements-google.txt" and ""
+               "requirements-google.txt" and "<requirements-user>.txt"
 
         Args:
             project_dir: The destination directory path to put requirements.txt.
