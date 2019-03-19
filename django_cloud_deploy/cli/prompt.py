@@ -142,9 +142,9 @@ def _multiple_choice_validate(s: str, len_options: int):
             1, len_options + 1))
 
 
-def _binary_prompt(question: str,
-                   console: io.IO,
-                   default: Optional[bool] = None) -> bool:
+def binary_prompt(question: str,
+                  console: io.IO,
+                  default: Optional[bool] = None) -> bool:
     """Used to prompt user to choose from a yes or no question.
 
     Args:
@@ -681,7 +681,7 @@ class CredentialsPrompt(TemplatePrompt):
         if active_account:  # The user has already logged in before
             msg = ('You have logged in with account [{}]. Do you want to '
                    'use it? [Y/n]: ').format(active_account)
-            use_active_credentials = _binary_prompt(msg, console, default='Y')
+            use_active_credentials = binary_prompt(msg, console, default='Y')
             create_new_credentials = not use_active_credentials
 
         if create_new_credentials:
@@ -1134,33 +1134,6 @@ class DjangoSuperuserEmailPrompt(StringTemplatePrompt):
             raise ValueError(('Invalid Django superuser email address "{}": '
                               'the format should be like '
                               '"test@example.com"').format(s))
-
-
-class TakeSurveyPrompt(object):
-    """Ask the user whether they would like to take a survey.
-
-    This class does not inherit from Prompt because it does not follow the
-    contract for being a prompt.
-    """
-
-    SURVEY_LINK = 'https://google.qualtrics.com/jfe/form/SV_3wwUubKBJnC7Fxr'
-
-    def prompt(self, console: io.IO) -> bool:
-        """Ask users to take a survey.
-
-        If the user would like to take the survey, then the method will open
-        their web browser and direct them to an existing Qualtics survery.
-
-        Args:
-            console: Object to use for user I/O.
-
-        Returns:
-            Whether the user would like to take the survey.
-        """
-        msg = ('Would you like to take a survey to provide your feedback for '
-               'the deployment process? [Y/n]')
-
-        return _binary_prompt(msg, console, default='Y')
 
 
 class RootPrompt(object):

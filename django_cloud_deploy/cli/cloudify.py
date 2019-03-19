@@ -159,10 +159,9 @@ def main(args: argparse.Namespace, console: io.IO = io.ConsoleIO()):
         console.error('A project with id "{}" already exists'.format(
             actual_parameters['project_id']))
 
-    survey_prompt = prompt.TakeSurveyPrompt()
-    do_survey = survey_prompt.prompt(console)
+    do_survey = survey.prompt_for_survey(console)
     if do_survey:
-        webbrowser.open_url(prompt.TakeSurveyPrompt.SURVEY_LINK)
+        webbrowser.open_url(survey.SURVEY_LINK)
     return admin_url
 
 
