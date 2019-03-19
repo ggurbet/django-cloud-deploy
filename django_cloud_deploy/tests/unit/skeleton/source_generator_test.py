@@ -412,7 +412,7 @@ class DependencyFileGeneratorTest(FileGeneratorTest):
                                             self._generator._REQUIREMENTS)
         with open(dependency_file_path, 'wt') as f:
             f.write('\n'.join(dependencies))
-        self._generator.generate_from_existing(self._project_dir)
+        self._generator.generate_from_existing(self._project_dir, project_name)
         dependency_file_path = os.path.join(self._project_dir,
                                             self._generator._REQUIREMENTS)
         with open(dependency_file_path) as dependency_file:
@@ -427,7 +427,7 @@ class DependencyFileGeneratorTest(FileGeneratorTest):
         # Create a Django project to make the directory looks similar with an
         # existing Django project
         management.call_command('startproject', project_name, self._project_dir)
-        self._generator.generate_from_existing(self._project_dir)
+        self._generator.generate_from_existing(self._project_dir, project_name)
         dependency_file_path = os.path.join(self._project_dir,
                                             self._generator._REQUIREMENTS)
         with open(dependency_file_path) as dependency_file:
@@ -447,7 +447,7 @@ class DependencyFileGeneratorTest(FileGeneratorTest):
                                             self._generator._REQUIREMENTS)
         with open(dependency_file_path, 'wt') as f:
             f.write('\n'.join(dependencies))
-        self._generator.generate_from_existing(self._project_dir)
+        self._generator.generate_from_existing(self._project_dir, project_name)
         dependency_file_path = os.path.join(
             self._project_dir, self._generator._REQUIREMENTS_GOOGLE)
         with open(dependency_file_path) as dependency_file:

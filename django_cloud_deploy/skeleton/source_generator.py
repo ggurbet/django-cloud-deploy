@@ -471,22 +471,23 @@ class _DependencyFileGenerator(_Jinja2FileGenerator):
         self._generate_requirements_google(project_dir)
         self._generate_requirements(project_dir)
 
-    def generate_from_existing(self, project_dir: str):
+    def generate_from_existing(self, project_dir: str, project_name: str):
         """Generate requirements.txt.
 
         Dependencies are hardcoded.
 
         Args:
             project_dir: The destination directory path to put requirements.txt.
+            project_name: Name of the Django project. e.g. mysite.
         """
 
-        requirements_path = utils.guess_requirements_path(project_dir)
-        absolute_requirements_path = os.path.join(
-            project_dir, requirements_path)
-
+        requirements_path = utils.guess_requirements_path(
+            project_dir, project_name)
         existing_requirements = set()
         requirements_relative_path = None
         if requirements_path:
+            absolute_requirements_path = os.path.join(
+                project_dir, requirements_path)
             existing_requirements = requirements_parser.parse(
                 absolute_requirements_path)
 
@@ -811,7 +812,8 @@ class DjangoSourceFileGenerator(_FileGenerator):
             database_name, cloud_storage_bucket_name)
         self.docker_file_generator.generate_from_existing(
             project_name, project_dir)
-        self.dependency_file_generator.generate_from_existing(project_dir)
+        self.dependency_file_generator.generate_from_existing(
+            project_dir, project_name)
         self.yaml_file_generator.generate_from_existing(
             project_dir, project_name, project_id, instance_name, region,
             image_tag, cloudsql_secrets, django_secrets)
