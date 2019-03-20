@@ -763,6 +763,7 @@ class DjangoSettingsPathPromptTest(absltest.TestCase):
         expected_settings_path = os.path.join(self.project_dir,
                                               self.project_name, 'settings.py')
         test_io.answers.append(expected_settings_path)
+        before_sys_path = sys.path
         args = self.django_settings_path_prompt.prompt(
             test_io,
             '[2/2]',
@@ -771,7 +772,9 @@ class DjangoSettingsPathPromptTest(absltest.TestCase):
         django_settings_path = args.get('django_settings_path', None)
         self.assertEqual(django_settings_path, expected_settings_path)
         self.assertEmpty(test_io.answers)  # All answers used.
-        self.assertNotIn(self.project_dir, sys.path)
+
+        # Assert sys.path is not changed by the prompt
+        self.assertCountEqual(before_sys_path, sys.path)
 
     def test_settings_file_not_found(self):
         test_io = io.TestIO()
@@ -780,6 +783,7 @@ class DjangoSettingsPathPromptTest(absltest.TestCase):
                                               self.project_name, 'settings.py')
         test_io.answers.append('<invalid_path>')
         test_io.answers.append(expected_settings_path)
+        before_sys_path = sys.path
         args = self.django_settings_path_prompt.prompt(
             test_io,
             '[2/2]',
@@ -788,7 +792,9 @@ class DjangoSettingsPathPromptTest(absltest.TestCase):
         django_settings_path = args.get('django_settings_path', None)
         self.assertEqual(django_settings_path, expected_settings_path)
         self.assertEmpty(test_io.answers)  # All answers used.
-        self.assertNotIn(self.project_dir, sys.path)
+
+        # Assert sys.path is not changed by the prompt
+        self.assertCountEqual(before_sys_path, sys.path)
 
     def test_settings_file_not_a_python_file(self):
         test_io = io.TestIO()
@@ -801,6 +807,7 @@ class DjangoSettingsPathPromptTest(absltest.TestCase):
 
         test_io.answers.append(invalid_settings_path)
         test_io.answers.append(expected_settings_path)
+        before_sys_path = sys.path
         args = self.django_settings_path_prompt.prompt(
             test_io,
             '[2/2]',
@@ -809,7 +816,9 @@ class DjangoSettingsPathPromptTest(absltest.TestCase):
         django_settings_path = args.get('django_settings_path', None)
         self.assertEqual(django_settings_path, expected_settings_path)
         self.assertEmpty(test_io.answers)  # All answers used.
-        self.assertNotIn(self.project_dir, sys.path)
+
+        # Assert sys.path is not changed by the prompt
+        self.assertCountEqual(before_sys_path, sys.path)
 
     def test_settings_file_invalid(self):
         test_io = io.TestIO()
@@ -826,6 +835,7 @@ class DjangoSettingsPathPromptTest(absltest.TestCase):
             f.write(file_content)
         test_io.answers.append(invalid_settings_path)
         test_io.answers.append(expected_settings_path)
+        before_sys_path = sys.path
         args = self.django_settings_path_prompt.prompt(
             test_io,
             '[2/2]',
@@ -834,7 +844,9 @@ class DjangoSettingsPathPromptTest(absltest.TestCase):
         django_settings_path = args.get('django_settings_path', None)
         self.assertEqual(django_settings_path, expected_settings_path)
         self.assertEmpty(test_io.answers)  # All answers used.
-        self.assertNotIn(self.project_dir, sys.path)
+
+        # Assert sys.path is not changed by the prompt
+        self.assertCountEqual(before_sys_path, sys.path)
 
 
 if __name__ == '__main__':
