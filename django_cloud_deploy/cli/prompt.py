@@ -1191,15 +1191,14 @@ class DjangoSettingsPathPrompt(StringTemplatePrompt):
             raise ValueError(
                 'Path ["{}"] does not exist.'.format(django_settings_path))
 
-        if not django_settings_path.endswith('.py'):
+        root, ext = os.path.splitext(django_settings_path)
+        if ext != '.py':
             raise ValueError(
                 '["{}"] is not a .py file.'.format(django_settings_path))
 
-        module_relative_path = os.path.relpath(django_settings_path,
-                                               project_dir)
+        module_relative_path = os.path.relpath(root, project_dir)
 
-        # Remove ".py" at the end.
-        module_name = module_relative_path[:-3].replace('/', '.')
+        module_name = module_relative_path.replace('/', '.')
         sys.path.append(project_dir)
         spec = importlib.util.spec_from_file_location(module_name,
                                                       django_settings_path)
