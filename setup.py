@@ -28,26 +28,36 @@ with open(os.path.join(here, 'README.md'), 'r') as fh:
 
 
 install_requires = [
-    'urllib3>=1.23,<2',
+    # "requests" is one of our implicit dependency, which has dependency
+    # "urllib3<1.25".
+    # See https://github.com/kennethreitz/requests/blob/master/setup.py#L47
+    'urllib3>=1.23,<1.25',
     'oauth2client>=4.1.2',
-    'django>=2.1.5,<2.2',
+    'django>=1.11',
     'backoff>=1.8.0',
     'jinja2>=2.10',
-    'google-cloud-resource-manager>=0.28.1',
     'docker>=3.4.1',
     'kubernetes>=6.0.0',
-    'google-cloud-container>=0.1.1',
     'grpcio>=1.14.1',
-    'google-cloud-storage>=1.10.0',
     'pexpect>=4.6.0',
-    'psycopg2-binary>=2.7.5',
-    'google-api-python-client>=1.7.4',
+    'google-api-python-client>=1.7.9',
     'google-auth-httplib2>=0.0.3',
-    'google-cloud-logging>=1.8.0',
     'progressbar2>=3.38.0',
     'portpicker>=1.2.0',
     'PyYAML>=5.1',
 ]
+
+
+test_requires = [
+    'absl-py>=0.7.1',
+    'nox',
+    'selenium>=3.141.0',
+]
+
+
+extras = {
+    'test': test_requires
+}
 
 
 setuptools.setup(
@@ -66,6 +76,7 @@ setuptools.setup(
     packages=setuptools.find_packages(),
     include_package_data=True,
     install_requires=install_requires,
+    extras_require=extras,
     python_requires='>=3.5',
 
     license='Apache 2.0',

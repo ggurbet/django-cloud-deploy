@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Manages resources about static content serving of Django projects."""
+"""Manages resources of Google Cloud Storage."""
 
 import os
 import pathlib
@@ -27,17 +27,13 @@ from googleapiclient import http
 from google.auth import credentials
 
 
-class StaticContentServeError(Exception):
+class CloudStorageError(Exception):
     """An exception occured while managing resources about static content."""
     pass
 
 
-class StaticContentServeClient(object):
+class StorageClient(object):
     """A class for serving static contents for Django projects."""
-
-    # All static files are supposed to be uploaded to
-    # <bucket>/<GCS_ROOT>/<relative_path_with_local_static_content_directory>
-    GCS_ROOT = 'static'
 
     def __init__(self, storage_service: discovery.Resource):
         self._storage_service = storage_service
@@ -45,9 +41,10 @@ class StaticContentServeClient(object):
     @classmethod
     def from_credentials(cls, credentials: credentials.Credentials):
         return cls(
-            discovery.build(
-                'storage', 'v1', credentials=credentials,
-                cache_discovery=False))
+            discovery.build('storage',
+                            'v1',
+                            credentials=credentials,
+                            cache_discovery=False))
 
     def _bucket_exist(self, project_id: str, bucket_name: str) -> bool:
         """Returns whether the given bucket exists under the given project.
@@ -60,13 +57,13 @@ class StaticContentServeClient(object):
            Whether the given bucket exists under the given project.
 
         Raises:
-            StaticContentServeError: When it fails to list buckets under the
+            CloudStorageError: When it fails to list buckets under the
                 given project.
         """
         request = self._storage_service.buckets().list(project=project_id)
         response = request.execute(num_retries=5)
         if 'items' not in response:
-            raise StaticContentServeError(
+            raise CloudStorageError(
                 'Unexpected response listing buckets in project "{}"'
                 ': {}'.format(project_id, response))
         return any(item['name'] == bucket_name for item in response['items'])
@@ -119,23 +116,23 @@ class StaticContentServeClient(object):
             bucket_name: Name of the bucket to create.
 
         Raises:
-            StaticContentServeError: When it fails to create the bucket.
+            CloudStorageError: When it fails to create the bucket.
         """
         bucket_body = {'name': bucket_name}
-        request = self._storage_service.buckets().insert(
-            project=project_id, body=bucket_body)
+        request = self._storage_service.buckets().insert(project=project_id,
+                                                         body=bucket_body)
         try:
             response = request.execute(num_retries=5)
             # When the api call succeed, the response is a Bucket Resource
             # object. See
             # https://cloud.google.com/storage/docs/json_api/v1/buckets#resource
             if 'name' not in response:
-                raise StaticContentServeError(
+                raise CloudStorageError(
                     'Unexpected response creating bucket "{}" in project "{}"'
                     ': {}'.format(bucket_name, project_id, response))
         except errors.HttpError as e:
             if e.resp.status == 403:
-                raise StaticContentServeError(
+                raise CloudStorageError(
                     'You do not have permission to create bucket in project: '
                     '"{}"'.format(project_id))
             elif e.resp.status == 409:
@@ -146,12 +143,12 @@ class StaticContentServeClient(object):
                 if self._bucket_exist(project_id, bucket_name):
                     return
                 else:
-                    raise StaticContentServeError(
+                    raise CloudStorageError(
                         'Bucket "{}" already exist. Name of the bucket should '
                         'be unique across the whole Google Cloud '
                         'Platform.'.format(bucket_name))
             else:
-                raise StaticContentServeError(
+                raise CloudStorageError(
                     'Unexpected error when creating bucket "{}" in project "{}"'
                     .format(bucket_name, project_id)) from e
 
@@ -164,26 +161,26 @@ class StaticContentServeClient(object):
             bucket_name: Name of the bucket to create.
 
         Raises:
-            StaticContentServeError: When it fails to make the bucket public.
+            CloudStorageError: When it fails to make the bucket public.
         """
         request = self._storage_service.buckets().getIamPolicy(
             bucket=bucket_name)
         try:
             response = request.execute(num_retries=5)
             if 'bindings' not in response:
-                raise StaticContentServeError(
+                raise CloudStorageError(
                     'Unexpected responses getting iam policy of bucket "{}"'.
                     format(bucket_name))
         except errors.HttpError as e:
             if e.resp.status == 403:
-                raise StaticContentServeError(
+                raise CloudStorageError(
                     ('You do not have permission to get iam policy of bucket '
                      '"{}"').format(bucket_name))
             elif e.resp.status == 404:
-                raise StaticContentServeError(
+                raise CloudStorageError(
                     'Bucket "{}" not found.'.format(bucket_name))
             else:
-                raise StaticContentServeError(
+                raise CloudStorageError(
                     'Unexpected error getting iam policy of bucket "{}"'.format(
                         bucket_name)) from e
 
@@ -195,19 +192,19 @@ class StaticContentServeClient(object):
         try:
             response = request.execute(num_retries=5)
             if 'bindings' not in response:
-                raise StaticContentServeError(
+                raise CloudStorageError(
                     'Unexpected responses setting iam policy of bucket "{}"'.
                     format(bucket_name))
         except errors.HttpError as e:
             if e.resp.status == 403:
-                raise StaticContentServeError(
+                raise CloudStorageError(
                     ('You do not have permission to set iam policy of bucket '
                      '"{}"').format(bucket_name))
             elif e.resp.status == 404:
-                raise StaticContentServeError(
+                raise CloudStorageError(
                     'Bucket "{}" not found.'.format(bucket_name))
             else:
-                raise StaticContentServeError(
+                raise CloudStorageError(
                     'Unexpected error setting iam policy of bucket "{}"'.format(
                         bucket_name)) from e
 
@@ -216,24 +213,25 @@ class StaticContentServeClient(object):
         """Upload the contents of a local file to an object in a GCS bucket."""
         media_body = http.MediaFileUpload(local_file_path)
         body = {'name': object_name}
-        request = self._storage_service.objects().insert(
-            bucket=bucket_name, body=body, media_body=media_body)
+        request = self._storage_service.objects().insert(bucket=bucket_name,
+                                                         body=body,
+                                                         media_body=media_body)
         try:
             response = request.execute(num_retries=5)
             if 'name' not in response:
-                raise StaticContentServeError(
+                raise CloudStorageError(
                     'Unexpected responses when uploading file "{}" to '
                     'bucket "{}"'.format(local_file_path, bucket_name))
         except errors.HttpError as e:
             if e.resp.status == 403:
-                raise StaticContentServeError(
+                raise CloudStorageError(
                     'You do not have permission to upload files to '
                     'bucket "{}"'.format(bucket_name))
             elif e.resp.status == 404:
-                raise StaticContentServeError(
+                raise CloudStorageError(
                     'Bucket "{}" not found.'.format(bucket_name))
             else:
-                raise StaticContentServeError(
+                raise CloudStorageError(
                     'Unexpected error when uploading file "{}" to '
                     'bucket "{}"'.format(local_file_path, bucket_name)) from e
 
@@ -245,39 +243,34 @@ class StaticContentServeClient(object):
         # is resolved.
         media_body.stream().close()
 
-    def upload_content(self,
-                       bucket_name: str,
-                       static_content_dir: str,
-                       gcs_folder_root: str = None):
+    def upload_content(self, bucket_name: str, source_dir_path: str,
+                       gcs_dir_name: str):
         """Upload content in the given directory to a GCS bucket.
 
         Args:
             bucket_name: Name of the bucket you want to upload static content
                 to.
-            static_content_dir: Absolute path of the directory containing
-                static files of the Django app.
-            gcs_folder_root: Name of root folder for files in GCS bucket.
+            source_dir_path: Absolute path of the directory containing the
+                files you want to upload.
+            gcs_dir_name: Name of root folder for files in GCS bucket.
 
         Raises:
-            StaticContentServeError: When failed to upload files.
+            CloudStorageError: When failed to upload files.
         """
-
-        prefix_length = len(static_content_dir)
 
         # The api only supports uploading a single file. So we need to iterate
         # all files in the given directory.
-        for directory_absolute_path, _, files in os.walk(static_content_dir):
+        for directory_absolute_path, _, files in os.walk(source_dir_path):
             directory_relative_path = os.path.relpath(directory_absolute_path,
-                                                      static_content_dir)
+                                                      source_dir_path)
             for filename in files:
-                gcs_folder_root = gcs_folder_root or self.GCS_ROOT
                 # Path of the file in the GCS bucket. Always use POSIX paths
                 # to avoid backslashes in names when running on Windows.
                 gcs_relative_path = pathlib.PurePosixPath(
                     directory_relative_path.replace('\\', '/'))
-                gcs_object_path = (
-                    pathlib.PurePosixPath(gcs_folder_root) / gcs_relative_path /
-                    pathlib.PurePosixPath(filename))
+                gcs_object_path = (pathlib.PurePosixPath(gcs_dir_name) /
+                                   gcs_relative_path /
+                                   pathlib.PurePosixPath(filename))
 
                 # Local absolute path of the file
                 local_file_path = os.path.join(directory_absolute_path,
@@ -291,12 +284,12 @@ class StaticContentServeClient(object):
         This function should be called only after django.setup() is called.
 
         Raises:
-            StaticContentServeError: If Django environment is not correctly
+            CloudStorageError: If Django environment is not correctly
                 setup.
         """
 
         if not settings.configured:
-            raise StaticContentServeError(
+            raise CloudStorageError(
                 'Django environment is not setup correctly or the settings '
                 'module is invalid. We cannot collect static files.')
         cwd = os.getcwd()
@@ -305,10 +298,36 @@ class StaticContentServeClient(object):
         # This is not expected.
         os.chdir(settings.BASE_DIR)
         try:
-            management.call_command(
-                'collectstatic', verbosity=0, interactive=False)
+            management.call_command('collectstatic',
+                                    verbosity=0,
+                                    interactive=False)
         except Exception as e:
             raise crash_handling.UserError(
                 'Not able to collect static files.') from e
         finally:
             os.chdir(cwd)
+
+    def set_cors_policy(self, bucket_name: str, origin: str):
+        """Make the given bucket able to serve fonts to the given origins.
+
+        Args:
+            bucket_name: Name of a GCS bucket for static content serving.
+            origin: Url of the website which need fonts in the bucket.
+        """
+        request = self._storage_service.buckets().get(bucket=bucket_name)
+        bucket_body = request.execute(num_retries=5)
+        cors_policy = [{
+            'origin': [origin],
+            'method': ['GET'],
+            'responseHeader': ['Content-Type'],
+            'maxAgeSeconds': 3600,
+        }]
+        bucket_body['cors'] = cors_policy
+        try:
+            request = self._storage_service.buckets().patch(bucket=bucket_name,
+                                                            body=bucket_body)
+            request.execute(num_retries=5)
+        except errors.HttpError as e:
+            raise CloudStorageError(
+                'Fail to change CORS policy of bucket {}.'.format(
+                    bucket_name)) from e

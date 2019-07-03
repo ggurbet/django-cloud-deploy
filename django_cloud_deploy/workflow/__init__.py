@@ -19,6 +19,7 @@ import shutil
 import socket
 from typing import Any, Dict, List, Optional, Tuple
 
+from django.conf import settings
 from django_cloud_deploy import config
 from django_cloud_deploy.cli import io
 from django_cloud_deploy.cloudlib import billing
@@ -29,6 +30,7 @@ from django_cloud_deploy.workflow import deploy_workflow
 from django_cloud_deploy.workflow import _project
 from django_cloud_deploy.workflow import _service_account
 from django_cloud_deploy.workflow import _static_content_serve
+from django_cloud_deploy.workflow import _file_bucket
 from django_cloud_deploy.utils import webbrowser
 
 from google.auth import credentials
@@ -51,7 +53,7 @@ class InvalidConfigError(Exception):
 class WorkflowManager(object):
     """A class to control workflow for deploying Django apps on GKE."""
 
-    _TOTAL_NEW_STEPS = 8
+    _TOTAL_NEW_STEPS = 9
     _TOTAL_UPDATE_STEPS = 3
 
     DEFAULT_GAE_SERVICE_NAME = 'default'
@@ -69,6 +71,8 @@ class WorkflowManager(object):
             _service_account.ServiceAccountKeyGenerationWorkflow(credentials))
         self._static_content_workflow = (
             _static_content_serve.StaticContentServeWorkflow(credentials))
+        self._file_bucket_workflow = (
+            _file_bucket.FileBucketCreationWorkflow(credentials))
         self._console_io = io.ConsoleIO()
 
     def create_and_deploy_new_project(
@@ -83,12 +87,17 @@ class WorkflowManager(object):
             django_superuser_password: str,
             django_directory_path: str,
             database_password: str,
+            cluster_name: Optional[str] = None,
+            database_instance_name: Optional[str] = None,
             django_app_name: Optional[str] = None,
+            django_requirements_path: Optional[str] = None,
+            django_settings_path: Optional[str] = None,
             required_services: Optional[List[Dict[str, str]]] = None,
             required_service_accounts: Optional[
                 Dict[str, List[Dict[str, Any]]]] = None,
             appengine_service_name: Optional[str] = None,
             cloud_storage_bucket_name: str = None,
+            file_storage_bucket_name: str = None,
             region: str = 'us-west1',
             cloud_sql_proxy_path: str = 'cloud_sql_proxy',
             backend: str = 'gke',
@@ -113,9 +122,16 @@ class WorkflowManager(object):
             django_directory_path: The location where the generated Django
                 project code should be stored.
             database_password: The password for the default database user.
+            cluster_name: Name of the cluster to use when deploying on GKE.
+            database_instance_name: Name of the Cloud SQL instance to use for
+                deployment
             django_app_name: The name of the Django app e.g. "poll". This is not
                 needed in deploying existing projects because the projects
                 already contain apps.
+            django_requirements_path: Absolute path of requirements.txt of the
+                existing Django project.
+            django_settings_path: Absolute path of settings.py of the existing
+                Django project.
             required_services: The services needed to be enabled for deployment.
             required_service_accounts: Service accounts needed to be created for
                 deployment. It should have the following format:
@@ -135,6 +151,9 @@ class WorkflowManager(object):
             cloud_storage_bucket_name: Name of the Google Cloud Storage Bucket
                 we use to serve static content. By default it is equal to
                 project id.
+            file_storage_bucket_name: Name of the Google Cloud Storage Bucket
+                used to store files by the Django app. By default it is equal to
+                files-project id.
             region: Where the service is hosted.
             cloud_sql_proxy_path: The command to run your cloud sql proxy.
             backend: The desired backend to deploy the Django App on.
@@ -148,18 +167,22 @@ class WorkflowManager(object):
         """
         # A bunch of variables necessary for deployment we hardcode for user.
         appengine_service_name = appengine_service_name or self.DEFAULT_GAE_SERVICE_NAME
-
         database_username = 'postgres'
         cloud_storage_bucket_name = cloud_storage_bucket_name or project_id
+        file_storage_bucket_name = (file_storage_bucket_name or
+                                    'files-{}'.format(project_id))
 
         sanitized_django_project_name = self._sanitize_name(django_project_name)
-        cluster_name = sanitized_django_project_name
+        cluster_name = cluster_name or sanitized_django_project_name
         database_name = sanitized_django_project_name + '-db'
-        database_instance_name = sanitized_django_project_name + '-instance'
-
+        database_instance_name = (database_instance_name or
+                                  sanitized_django_project_name + '-instance')
+        django_settings_path = django_settings_path or os.path.join(
+            django_directory_path, django_project_name, 'settings.py')
+        django_requirements_path = django_requirements_path or os.path.join(
+            django_directory_path, 'requirements.txt')
         image_name = '/'.join(
             ['gcr.io', project_id, sanitized_django_project_name])
-        static_content_dir = os.path.join(django_directory_path, 'static')
 
         cloud_sql_proxy_port = portpicker.pick_unused_port()
 
@@ -176,7 +199,6 @@ class WorkflowManager(object):
 
         self._console_io.tell('[3/{}]: Django Source Generation'.format(
             self._TOTAL_NEW_STEPS))
-
         # Source generation requires service account ids.
         required_service_accounts = (
             required_service_accounts or
@@ -190,10 +212,13 @@ class WorkflowManager(object):
                 project_dir=django_directory_path,
                 database_user=database_username,
                 database_password=database_password,
+                django_requirements_path=django_requirements_path,
+                django_settings_path=django_settings_path,
                 instance_name=database_instance_name,
                 database_name=database_name,
                 cloud_sql_proxy_port=cloud_sql_proxy_port,
                 cloud_storage_bucket_name=cloud_storage_bucket_name,
+                file_storage_bucket_name=file_storage_bucket_name,
                 cloudsql_secrets=cloud_sql_secrets,
                 django_secrets=django_secrets,
                 service_name=appengine_service_name,
@@ -210,6 +235,7 @@ class WorkflowManager(object):
                 database_name=database_name,
                 cloud_sql_proxy_port=cloud_sql_proxy_port,
                 cloud_storage_bucket_name=cloud_storage_bucket_name,
+                file_storage_bucket_name=file_storage_bucket_name,
                 cloudsql_secrets=cloud_sql_secrets,
                 django_secrets=django_secrets,
                 service_name=appengine_service_name,
@@ -218,6 +244,7 @@ class WorkflowManager(object):
         with self._console_io.progressbar(
                 300, '[4/{}]: Database Set Up'.format(self._TOTAL_NEW_STEPS)):
             self._database_workflow.create_and_setup_database(
+                project_dir=django_directory_path,
                 project_id=project_id,
                 instance_name=database_instance_name,
                 database_name=database_name,
@@ -238,14 +265,20 @@ class WorkflowManager(object):
             self._enable_service_workflow.enable_required_services(
                 project_id, required_services)
 
+        static_content_dir = settings.STATIC_ROOT
         with self._console_io.progressbar(
                 300, '[6/{}]: Static Content Serve Set Up'.format(
                     self._TOTAL_NEW_STEPS)):
             self._static_content_workflow.serve_static_content(
                 project_id, cloud_storage_bucket_name, static_content_dir)
 
+        self._console_io.tell('[7/{}]: File Bucket Creation'.format(
+            self._TOTAL_NEW_STEPS))
+        self._file_bucket_workflow.create_file_bucket(project_id,
+                                                      file_storage_bucket_name)
+
         self._console_io.tell(
-            '[7/{}]: Create Service Account Necessary For Deployment'.format(
+            '[8/{}]: Create Service Account Necessary For Deployment'.format(
                 self._TOTAL_NEW_STEPS))
         secrets = self._generate_secrets(project_id, database_username,
                                          database_password,
@@ -253,7 +286,7 @@ class WorkflowManager(object):
 
         if backend == 'gke':
             with self._console_io.progressbar(
-                    1200, '[8/{}]: Deployment'.format(self._TOTAL_NEW_STEPS)):
+                    1200, '[9/{}]: Deployment'.format(self._TOTAL_NEW_STEPS)):
                 app_url = self.deploy_workflow.deploy_gke_app(
                     project_id, cluster_name, django_directory_path,
                     django_project_name, image_name, secrets)
@@ -265,16 +298,23 @@ class WorkflowManager(object):
             # already created.
             is_new = appengine_service_name == self.DEFAULT_GAE_SERVICE_NAME
             with self._console_io.progressbar(
-                    300, '[8/{}]: Deployment'.format(self._TOTAL_NEW_STEPS)):
+                    300, '[9/{}]: Deployment'.format(self._TOTAL_NEW_STEPS)):
                 app_url = self.deploy_workflow.deploy_gae_app(
                     project_id, django_directory_path, is_new=is_new)
-
+        self._static_content_workflow.set_cors_policy(cloud_storage_bucket_name,
+                                                      app_url)
         # Create configuration file to save information needed in "update"
         # command.
+
+        # Avoid showing the absolute path of settings file in configuration.
+        relative_settings_path = os.path.relpath(django_settings_path,
+                                                 django_directory_path)
         attributes = {
             'project_id': project_id,
             'django_project_name': django_project_name,
-            'backend': backend
+            'database_instance_name': database_instance_name,
+            'backend': backend,
+            'django_settings_path': relative_settings_path,
         }
         self._save_config(django_directory_path, attributes)
         self._console_io.tell('Your app is running at {}.'.format(app_url))
@@ -286,6 +326,8 @@ class WorkflowManager(object):
     def update_project(self,
                        django_directory_path: str,
                        database_password: str,
+                       cluster_name: Optional[str] = None,
+                       database_instance_name: Optional[str] = None,
                        cloud_sql_proxy_path: str = 'cloud_sql_proxy',
                        region: str = 'us-west1',
                        open_browser: bool = True):
@@ -295,6 +337,9 @@ class WorkflowManager(object):
             django_directory_path: The location where the generated Django
                 project code should be stored.
             database_password: The password for the default database user.
+            cluster_name: Name of the cluster to use when deploying on GKE.
+            database_instance_name: Name of the Cloud SQL instance to use for
+                deployment
             cloud_sql_proxy_path: The command to run your cloud sql proxy.
             region: Where the service is hosted.
             open_browser: Whether we open the browser to show the deployed app
@@ -309,6 +354,14 @@ class WorkflowManager(object):
         project_id = config_obj.get('project_id')
         django_project_name = config_obj.get('django_project_name')
         backend = config_obj.get('backend')
+        django_settings_path = config_obj.get('django_settings_path')
+        if django_settings_path:
+            django_settings_path = os.path.join(django_directory_path,
+                                                django_settings_path)
+        else:
+            django_settings_path = os.path.join(django_directory_path,
+                                                django_project_name,
+                                                'settings.py')
         cloud_sql_proxy_port = portpicker.pick_unused_port()
         if not project_id or not backend or not django_project_name:
             raise InvalidConfigError(
@@ -320,19 +373,23 @@ class WorkflowManager(object):
         database_username = 'postgres'
         cloud_storage_bucket_name = project_id
         sanitized_django_project_name = self._sanitize_name(django_project_name)
-        cluster_name = sanitized_django_project_name
-        database_instance_name = sanitized_django_project_name + '-instance'
+        cluster_name = cluster_name or sanitized_django_project_name
+        database_instance_name = (database_instance_name or
+                                  sanitized_django_project_name + '-instance')
         image_name = '/'.join(
             ['gcr.io', project_id, sanitized_django_project_name])
-        static_content_dir = os.path.join(django_directory_path, 'static')
+        self._source_generator.setup_django_environment(django_directory_path,
+                                                        database_username,
+                                                        database_password,
+                                                        django_settings_path,
+                                                        cloud_sql_proxy_port)
 
-        self._source_generator.setup_django_environment(
-            django_directory_path, django_project_name, database_username,
-            database_password, cloud_sql_proxy_port)
+        static_content_dir = settings.STATIC_ROOT
         with self._console_io.progressbar(
                 120,
                 '[1/{}]: Database Migration'.format(self._TOTAL_UPDATE_STEPS)):
             self._database_workflow.migrate_database(
+                project_dir=django_directory_path,
                 project_id=project_id,
                 instance_name=database_instance_name,
                 cloud_sql_proxy_path=cloud_sql_proxy_path,
@@ -474,8 +531,6 @@ class WorkflowManager(object):
     def _create_files_for_secrets(path: str, secrets: Dict[str, Any]):
         """Create secret files for GAE that will be uploaded to GCS buckets.
 
-        Currently, only needed for database password.
-
         Generates JSON files that will be used by the django on GAE.
 
         Args:
@@ -483,10 +538,8 @@ class WorkflowManager(object):
               secrets: Contains the information regarding the credentials.
         """
         os.makedirs(path)
-        secret_name = 'cloudsql'
-        content = secrets['cloudsql']
-        filename = '{}.json'.format(secret_name)
-        file_path = os.path.join(path, filename)
-        with open(file_path, 'w') as file:
-            if secret_name == 'cloudsql':
+        for secret, content in secrets.items():
+            filename = '{}.json'.format(secret)
+            file_path = os.path.join(path, filename)
+            with open(file_path, 'w') as file:
                 json.dump(content, file)

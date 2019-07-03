@@ -16,12 +16,15 @@
 import abc
 import enum
 import functools
+import importlib
 import os.path
 import random
 import re
 import string
+import sys
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
+import warnings
 
 from django_cloud_deploy import workflow
 from django_cloud_deploy.cli import io
@@ -30,6 +33,8 @@ from django_cloud_deploy.cloudlib import billing
 from django_cloud_deploy.cloudlib import project
 from django_cloud_deploy.skeleton import utils
 from django_cloud_deploy.utils import webbrowser
+from google.oauth2 import service_account
+import psycopg2
 
 
 class Command(enum.Enum):
@@ -142,9 +147,8 @@ def _multiple_choice_validate(s: str, len_options: int):
             1, len_options + 1))
 
 
-def _binary_prompt(question: str,
-                   console: io.IO,
-                   default: Optional[bool] = None) -> bool:
+def binary_prompt(question: str, console: io.IO,
+                  default: Optional[bool] = None) -> bool:
     """Used to prompt user to choose from a yes or no question.
 
     Args:
@@ -229,6 +233,28 @@ def _password_validate(s):
     return
 
 
+def _database_username_validate(s):
+    """Validates that a string is a valid database user name.
+
+    A valid user name should contain 1 to 63 characters. Only numbers, letters
+    and _ are accepted. It should start with a letter.
+
+    Args:
+        s: The string to validate.
+
+    Raises:
+        ValueError: if the input string is not valid.
+    """
+    if len(s) < 1 or len(s) > 63:
+        raise ValueError('Database user name must be 1 to 63 characters long')
+    if s[0] not in string.ascii_letters:
+        raise ValueError('Database user name must start with a letter')
+    allowed_characters = frozenset(string.ascii_letters + string.digits + '_')
+    if frozenset(s).issuperset(allowed_characters):
+        raise ValueError('Invalid character in database user name. Only '
+                         'numbers, letters, and _ are acceptable.')
+
+
 class Prompt(abc.ABC):
 
     @abc.abstractmethod
@@ -276,6 +302,8 @@ class TemplatePrompt(Prompt):
 
     # Parameter must be set for dictionary key
     PARAMETER = None
+    MESSAGE = ''
+    MESSAGE_DEFAULT = 'or leave blank to use [{}]: '
 
     def prompt(self, console: io.IO, step: str,
                args: Dict[str, Any]) -> Dict[str, Any]:
@@ -313,7 +341,7 @@ class TemplatePrompt(Prompt):
             console.error(e)
             quit()
 
-        msg = '{} {}: {}'.format(step, self.PARAMETER, value)
+        msg = '{}: {}'.format(self.MESSAGE.format(step), value)
         console.tell(msg)
         return True
 
@@ -354,12 +382,14 @@ class StringTemplatePrompt(TemplatePrompt):
 
         base_message = self.MESSAGE.format(step)
         if self.DEFAULT_VALUE:
-            default_message = '[{}]: '.format(self.DEFAULT_VALUE)
+            default_message = self.MESSAGE_DEFAULT.format(self.DEFAULT_VALUE)
             msg = '\n'.join([base_message, default_message])
         else:
             msg = base_message
-        answer = _ask_prompt(
-            msg, console, self._validate, default=self.DEFAULT_VALUE)
+        answer = _ask_prompt(msg,
+                             console,
+                             self._validate,
+                             default=self.DEFAULT_VALUE)
         new_args[self.PARAMETER] = answer
         return new_args
 
@@ -367,6 +397,7 @@ class StringTemplatePrompt(TemplatePrompt):
 class GoogleProjectName(TemplatePrompt):
 
     PARAMETER = 'project_name'
+    MESSAGE = '{} Enter a Google Cloud Platform project name'
 
     def __init__(self, project_client: project.ProjectClient):
         self.project_client = project_client
@@ -396,17 +427,17 @@ class GoogleProjectName(TemplatePrompt):
 
     def _handle_new_project(self, console: io.IO, step: str, args: [str, Any]):
         default_answer = 'Django Project'
-        msg_base = ('{} Enter a Google Cloud Platform project name, or leave '
-                    'blank to use').format(step)
-        msg_default = '[{}]: '.format(default_answer)
+        msg_base = self.MESSAGE.format(step)
+        msg_default = self.MESSAGE_DEFAULT.format(default_answer)
         msg = '\n'.join([msg_base, msg_default])
         project_id = args.get('project_id', None)
         mode = args.get('project_creation_mode', None)
         validate = functools.partial(self._validate, project_id, mode)
         return _ask_prompt(msg, console, validate, default=default_answer)
 
-    def _is_new_project(
-            self, project_creation_mode: workflow.ProjectCreationMode) -> bool:
+    def _is_new_project(self,
+                        project_creation_mode: workflow.ProjectCreationMode
+                       ) -> bool:
         must_exist = workflow.ProjectCreationMode.MUST_EXIST
         return project_creation_mode != must_exist
 
@@ -455,6 +486,7 @@ class GoogleNewProjectId(TemplatePrompt):
     """Handles Project ID for new projects."""
 
     PARAMETER = 'project_id'
+    MESSAGE = '{} Enter a Google Cloud Platform Project id'
 
     def _validate(self, s: str):
         """Validates that a string is a valid project id.
@@ -500,12 +532,13 @@ class GoogleNewProjectId(TemplatePrompt):
 
         project_name = args.get('project_name', None)
         default_answer = self._generate_default_project_id(project_name)
-        msg_base = ('{} Enter a Google Cloud Platform Project ID, '
-                    'or leave blank to use').format(step)
-        msg_default = '[{}]: '.format(default_answer)
+        msg_base = self.MESSAGE.format(step)
+        msg_default = self.MESSAGE_DEFAULT.format(default_answer)
         msg = '\n'.join([msg_base, msg_default])
-        answer = _ask_prompt(
-            msg, console, self._validate, default=default_answer)
+        answer = _ask_prompt(msg,
+                             console,
+                             self._validate,
+                             default=default_answer)
         new_args[self.PARAMETER] = answer
         return new_args
 
@@ -545,6 +578,7 @@ class GoogleExistingProjectId(TemplatePrompt):
     """Handles Project ID for existing projects."""
 
     PARAMETER = 'project_id'
+    MESSAGE = '{} Enter the <b>existing</b> Google Cloud Platform Project ID'
 
     def __init__(self, project_client: project.ProjectClient,
                  active_account: str):
@@ -569,8 +603,7 @@ class GoogleExistingProjectId(TemplatePrompt):
                                      args.get(self.PARAMETER, None), validate):
             return new_args
 
-        msg = ('{} Enter the <b>existing</b> Google Cloud Platform Project ID '
-               'to use: ').format(step)
+        msg = '{}: '.format(self.MESSAGE.format(step))
         answer = _ask_prompt(msg, console, validate)
         new_args[self.PARAMETER] = answer
         return new_args
@@ -672,6 +705,22 @@ class CredentialsPrompt(TemplatePrompt):
                                      args.get(self.PARAMETER), lambda x: x):
             return new_args
 
+        if args.get('credentials_path'):
+            credentials_path = args.get('credentials_path')
+            try:
+                credentials = (
+                    service_account.Credentials.from_service_account_file(
+                        credentials_path,
+                        scopes=[
+                            'https://www.googleapis.com/auth/cloud-platform'
+                        ]))
+                new_args['credentials'] = credentials
+                return new_args
+            except Exception as e:
+                warnings.warn(
+                    ('File "{}" does not exist or is not a valid credentials '
+                     'file.\n{}'.format(credentials_path, e)))
+
         console.tell(
             ('{} In order to deploy your application, you must allow Django '
              'Deploy to access your Google account.').format(step))
@@ -681,13 +730,20 @@ class CredentialsPrompt(TemplatePrompt):
         if active_account:  # The user has already logged in before
             msg = ('You have logged in with account [{}]. Do you want to '
                    'use it? [Y/n]: ').format(active_account)
-            use_active_credentials = _binary_prompt(msg, console, default='Y')
+            use_active_credentials = binary_prompt(msg, console, default=True)
             create_new_credentials = not use_active_credentials
 
         if create_new_credentials:
             creds = self.auth_client.create_default_credentials()
         else:
             creds = self.auth_client.get_default_credentials()
+            if not creds:
+                console.ask(
+                    ('Warning: You are using a service account to authenticate '
+                     'gcloud, or your credentials file is missing, or it '
+                     'exists but does not have the correct format. Press Enter '
+                     'to create a new credential.'))
+                creds = self.auth_client.create_default_credentials()
 
         new_args[self.PARAMETER] = creds
         return new_args
@@ -697,13 +753,14 @@ class BillingPrompt(TemplatePrompt):
     """Allow the user to select a billing account to use for deployment."""
 
     PARAMETER = 'billing_account_name'
+    MESSAGE = '{} Enter a billing account'
 
     def __init__(self, billing_client: billing.BillingClient = None):
         self.billing_client = billing_client
 
-    def _get_new_billing_account(
-            self, console,
-            existing_billing_accounts: List[Dict[str, Any]]) -> str:
+    def _get_new_billing_account(self, console,
+                                 existing_billing_accounts: List[Dict[str, Any]]
+                                ) -> str:
         """Ask the user to create a new billing account and return name of it.
 
         Args:
@@ -822,18 +879,221 @@ class BillingPrompt(TemplatePrompt):
             ValueError: if the input string is not valid.
         """
 
-        billing_accounts = self.billing_client.list_billing_accounts()
+        billing_accounts = self.billing_client.list_billing_accounts(
+            only_open_accounts=True)
         billing_account_names = [
             account['name'] for account in billing_accounts
         ]
         if s not in billing_account_names:
-            raise ValueError('The provided billing account does not exist.')
+            raise ValueError(
+                'The provided billing account does not exist or is not eligible to use.'
+            )
+
+
+class GroupingPrompt(TemplatePrompt):
+    """A prompt which groups other prompts."""
+
+    def parse_step_info(self, step: str) -> Tuple[str]:
+        """Get the current step and total steps from the given step string.
+
+        Step string should look like "<b>[2/12]</b>"
+
+        Args:
+            step: A string represents a step.
+
+        Returns:
+            The tuple (current_step, total_step)
+        """
+        step_info = re.findall(r'\[[^\[\]]+\]', step)[0][1:-1].split('/')
+        return step_info[0], step_info[1]
+
+
+class NewDatabaseInformationPrompt(GroupingPrompt):
+    """Allow the user to enter the information about the database."""
+
+    def prompt(self, console: io.IO, step: str,
+               args: Dict[str, Any]) -> Dict[str, Any]:
+        """Extracts user arguments through the command-line.
+
+        Args:
+            console: Object to use for user I/O.
+            step: Message to present to user regarding what step they are on.
+            args: Dictionary holding prompts answered by user and set up
+                command-line arguments.
+
+        Returns:
+            A Copy of args + the new parameter collected.
+        """
+        new_args = dict(args)
+        database_arguments = self._try_get_database_arguments(new_args)
+        if self._is_valid_passed_arg(console, step, database_arguments,
+                                     self._validate):
+            return new_args
+
+        current_step, total_steps = self.parse_step_info(step)
+        msg = '[{}.a/{}] Enter the master user name for the database: '.format(
+            current_step, total_steps)
+        username = _ask_prompt(msg, console, _database_username_validate)
+        msg = '[{}.b/{}] Enter a password for the database user "{}"'.format(
+            current_step, total_steps, username)
+        password = _password_prompt(msg, console)
+        new_args['is_new_database'] = True
+        new_args['database_username'] = username
+        new_args['database_password'] = password
+        return new_args
+
+    def _try_get_database_arguments(self, args: Dict[str, Any]
+                                   ) -> Optional[Dict[str, Any]]:
+        try:
+            return {
+                'password': args['database_password'],
+                'database': args['database_name'],
+            }
+        except KeyError:
+            return None
+
+    def _validate(self, database_arguments: Dict[str, Any]):
+        user = database_arguments.get('database_username')
+        password = database_arguments.get('database_password')
+        _database_username_validate(user)
+        _password_validate(password)
+
+
+class ExistingDatabaseInformationPrompt(GroupingPrompt):
+    """Allow the user to enter the information about an existing database."""
+
+    def prompt(self, console: io.IO, step: str,
+               args: Dict[str, Any]) -> Dict[str, Any]:
+        """Extracts user arguments through the command-line.
+
+        Args:
+            console: Object to use for user I/O.
+            step: Message to present to user regarding what step they are on.
+            args: Dictionary holding prompts answered by user and set up
+                command-line arguments.
+
+        Returns:
+            A Copy of args + the new parameter collected.
+        """
+        new_args = dict(args)
+        database_arguments = self._try_get_database_arguments(new_args)
+        if self._is_valid_passed_arg(console, step, database_arguments,
+                                     self._validate):
+            return new_args
+
+        current_step, total_steps = self.parse_step_info(step)
+        while True:
+            msg = ('[{}.a/{}] Enter the public ip or host name of your '
+                   'database: ').format(current_step, total_steps)
+            host = _ask_prompt(msg, console)
+            default_port = 5432
+            msg = ('[{}.b/{}] Enter the port number of your database or '
+                   'press Enter to use "{}":').format(current_step, total_steps,
+                                                      default_port)
+            port = _ask_prompt(msg, console, default=default_port)
+            msg = ('[{}.c/{}] Enter the master user name for the '
+                   'database: ').format(current_step, total_steps)
+            username = _ask_prompt(msg, console, _database_username_validate)
+            msg = '[{}.d/{}] Enter password for the database user "{}"'.format(
+                current_step, total_steps, username)
+            password = _password_prompt(msg, console)
+            msg = '[{}.e/{}] Enter the name of your database: '.format(
+                current_step, total_steps)
+            database_name = _ask_prompt(msg, console)
+            new_args['is_new_database'] = False
+            new_args['database_username'] = username
+            new_args['database_password'] = password
+            new_args['database_host'] = host
+            new_args['database_port'] = int(port)
+            new_args['database_name'] = database_name
+            try:
+                self._validate(new_args)
+                break
+            except ValueError as e:
+                console.error(e)
+
+        return new_args
+
+    def _try_get_database_arguments(self, args: Dict[str, Any]
+                                   ) -> Optional[Dict[str, Any]]:
+        try:
+            return {
+                'host': args['database_host'],
+                'port': args['database_port'],
+                'user': args['database_username'],
+                'password': args['database_password'],
+                'database': args['database_name'],
+            }
+        except KeyError:
+            return None
+
+    def _validate(self, database_arguments: Dict[str, Any]):
+        """Validate the given database info by connecting to it.
+
+        Args:
+            database_arguments: Dictionary holding the information of database.
+
+        Raises:
+            ValueError: If failed to connect to the provided database.
+        """
+
+        host = database_arguments.get('database_host')
+        port = database_arguments.get('database_port')
+        user = database_arguments.get('database_username')
+        password = database_arguments.get('database_password')
+        database = database_arguments.get('database_name')
+        conn = None
+        try:
+            conn = psycopg2.connect(host=host,
+                                    database=database,
+                                    user=user,
+                                    password=password,
+                                    port=port)
+        except psycopg2.Error as e:
+            raise ValueError(
+                ('Error: Failed to connect to the provided database.\n'
+                 '{}').format(e))
+        finally:
+            if conn:
+                conn.close()
+
+
+class DatabasePrompt(TemplatePrompt):
+    """Allow the user to enter the information about the db for deployment."""
+
+    PARAMETER = 'database_information'
+
+    def prompt(self, console: io.IO, step: str,
+               args: Dict[str, Any]) -> Dict[str, Any]:
+        """Extracts user arguments through the command-line.
+
+        Args:
+            console: Object to use for user I/O.
+            step: Message to present to user regarding what step they are on.
+            args: Dictionary holding prompts answered by user and set up
+                command-line arguments.
+
+        Returns:
+            A Copy of args + the new parameter collected.
+        """
+        new_args = dict(args)
+        msg = ('{} Do you want to create a new database or use an existing '
+               'database for deployment? [y/N]: ').format(step)
+        use_existing_database = binary_prompt(msg, console, default=False)
+
+        if use_existing_database:
+            return ExistingDatabaseInformationPrompt().prompt(
+                console, step, new_args)
+        else:
+            return NewDatabaseInformationPrompt().prompt(
+                console, step, new_args)
 
 
 class PostgresPasswordPrompt(TemplatePrompt):
     """Allow the user to enter a Django Postgres password."""
 
     PARAMETER = 'database_password'
+    MESSAGE = '{} Enter a password for the default database user "postgres"'
 
     def prompt(self, console: io.IO, step: str,
                args: Dict[str, Any]) -> Dict[str, Any]:
@@ -852,9 +1112,7 @@ class PostgresPasswordPrompt(TemplatePrompt):
                                      self._validate):
             return new_args
 
-        msg = 'Enter a password for the default database user "postgres"'
-        question = '{} {}'.format(step, msg)
-        password = _password_prompt(question, console)
+        password = _password_prompt(self.MESSAGE.format(step), console)
         new_args[self.PARAMETER] = password
         return new_args
 
@@ -866,26 +1124,25 @@ class DjangoFilesystemPath(TemplatePrompt):
     """Allow the user to indicate the file system path for their project."""
 
     PARAMETER = 'django_directory_path'
+    MESSAGE = '{} Enter a new directory path to store project source'
 
     def _ask_to_replace(self, console, directory):
         msg = (('The directory \'{}\' already exists, '
                 'replace it\'s contents [y/N]: ').format(directory))
-        return _ask_prompt(msg, console, default='n')
+        return binary_prompt(msg, console, default=False)
 
     def _ask_for_directory(self, console, step, args) -> str:
-        base_msg = ('{} Enter a new directory path to store project source, '
-                    'or leave blank to use').format(step)
 
         home_dir = os.path.expanduser('~')
         # TODO: Remove filesystem-unsafe characters. Implement a validation
         # method that checks for these.
         default_dir = os.path.join(
             home_dir,
-            args.get('project_name', 'django-project').lower().replace(
-                ' ', '-'))
-        default_msg = '[{}]: '.format(default_dir)
-
-        msg = '\n'.join([base_msg, default_msg])
+            args.get('project_name',
+                     'django-project').lower().replace(' ', '-'))
+        msg_base = self.MESSAGE.format(step)
+        msg_default = self.MESSAGE_DEFAULT.format(default_dir)
+        msg = '\n'.join([msg_base, msg_default])
         return _ask_prompt(msg, console, default=default_dir)
 
     def prompt(self, console: io.IO, step: str,
@@ -910,7 +1167,7 @@ class DjangoFilesystemPath(TemplatePrompt):
             directory = self._ask_for_directory(console, step, args)
             if os.path.exists(directory):
                 replace = self._ask_to_replace(console, directory)
-                if replace.lower() == 'n':
+                if not replace:
                     continue
             break
 
@@ -918,55 +1175,12 @@ class DjangoFilesystemPath(TemplatePrompt):
         return new_args
 
 
-class DjangoFilesystemPathUpdate(TemplatePrompt):
+class DjangoFilesystemPathUpdate(StringTemplatePrompt):
     """Allow the user to indicate the file system path for their project."""
 
     PARAMETER = 'django_directory_path_update'
-
-    def _ask_for_directory(self, console, step, args) -> str:
-        base_msg = ('{} Enter the django project directory path '
-                    'or leave blank to use').format(step)
-
-        home_dir = os.path.expanduser('~')
-        # TODO: Remove filesystem-unsafe characters. Implement a validation
-        # method that checks for these.
-        default_dir = os.path.join(
-            home_dir,
-            args.get('project_name', 'django-project').lower().replace(
-                ' ', '-'))
-        default_msg = '[{}]: '.format(default_dir)
-
-        msg = '\n'.join([base_msg, default_msg])
-        return _ask_prompt(msg, console, default=default_dir)
-
-    def prompt(self, console: io.IO, step: str,
-               args: Dict[str, Any]) -> Dict[str, Any]:
-        """Extracts user arguments through the command-line.
-
-        Args:
-            console: Object to use for user I/O.
-            step: Message to present to user regarding what step they are on.
-            args: Dictionary holding prompts answered by user and set up
-                command-line arguments.
-
-        Returns: A Copy of args + the new parameter collected.
-        """
-        new_args = dict(args)
-        if self._is_valid_passed_arg(console, step, args.get(self.PARAMETER),
-                                     self._validate):
-            return new_args
-
-        while True:
-            directory = self._ask_for_directory(console, step, args)
-            try:
-                self._validate(directory)
-            except ValueError as e:
-                console.error(e)
-                continue
-            break
-
-        new_args[self.PARAMETER] = directory
-        return new_args
+    MESSAGE = '{} Enter the django project directory path'
+    DEFAULT_VALUE = os.path.abspath(os.path.expanduser('.'))
 
     def _validate(self, s: str):
         """Validates that a string is a valid Django project path.
@@ -991,7 +1205,8 @@ class DjangoFilesystemPathCloudify(StringTemplatePrompt):
 
     PARAMETER = 'django_directory_path_cloudify'
     MESSAGE = ('{} Enter the directory of the Django project you want to '
-               'deploy: ')
+               'deploy')
+    DEFAULT_VALUE = os.path.abspath(os.path.expanduser('.'))
 
     def _validate(self, s: str):
         """Validates that a string is a valid Django project path.
@@ -1015,7 +1230,7 @@ class DjangoProjectNamePrompt(StringTemplatePrompt):
     """Allow the user to enter a Django project name."""
 
     PARAMETER = 'django_project_name'
-    MESSAGE = '{} Enter a Django project name or leave blank to use'
+    MESSAGE = '{} Enter a Django project name'
     DEFAULT_VALUE = 'mysite'
 
     def _validate(self, s: str):
@@ -1032,12 +1247,45 @@ class DjangoProjectNamePrompt(StringTemplatePrompt):
                               'must be a valid Python identifier').format(s))
 
 
-class DjangoAppNamePrompt(StringTemplatePrompt):
-    """Allow the user to enter a Django project name."""
+class DjangoProjectNamePromptCloudify(TemplatePrompt):
+    """Allow the user to enter a Django project name.
 
-    PARAMETER = 'django_app_name'
-    MESSAGE = '{} Enter a Django app name or leave blank to use'
-    DEFAULT_VALUE = 'home'
+    The prompt will try guessing the Django project name first. If it failed,
+    ask the user to provide it.
+    """
+
+    PARAMETER = 'django_project_name_cloudify'
+    MESSAGE = '{} Enter the Django project name'
+
+    def prompt(self, console: io.IO, step: str,
+               args: Dict[str, Any]) -> Dict[str, Any]:
+        """Extracts user arguments through the command-line.
+
+        Args:
+            console: Object to use for user I/O.
+            step: Message to present to user regarding what step they are on.
+            args: Dictionary holding prompts answered by user and set up
+                command-line arguments.
+
+        Returns:
+            A Copy of args + the new parameter collected.
+        """
+        assert 'django_directory_path_cloudify' in args, (
+            'The absolute path of Django project must be provided')
+        new_args = dict(args)
+        django_directory_path = args['django_directory_path_cloudify']
+        django_project_name = utils.get_django_project_name(
+            django_directory_path)
+        new_args[self.PARAMETER] = django_project_name
+        if self._is_valid_passed_arg(console, step,
+                                     new_args.get(self.PARAMETER, None),
+                                     self._validate):
+            return new_args
+
+        msg = self.MESSAGE.format(step)
+        answer = _ask_prompt(msg, console, self._validate)
+        new_args[self.PARAMETER] = answer
+        return new_args
 
     def _validate(self, s: str):
         """Validates that a string is a valid Django project name.
@@ -1053,11 +1301,58 @@ class DjangoAppNamePrompt(StringTemplatePrompt):
                               'must be a valid Python identifier').format(s))
 
 
+class DjangoAppNamePrompt(TemplatePrompt):
+    """Allow the user to enter a Django project name.
+
+    The reason we dont use StringTemplatePrompt is due to the fact we need
+    to set up the validate function with the extra argument.
+    """
+
+    PARAMETER = 'django_app_name'
+    MESSAGE = '{} Enter a Django app name'
+    DEFAULT_VALUE = 'home'
+
+    def prompt(self, console: io.IO, step: str,
+               args: Dict[str, Any]) -> Dict[str, Any]:
+        django_project_name = args.get('django_project_name', None)
+        validate = functools.partial(self._validate, django_project_name)
+        new_args = dict(args)
+        if self._is_valid_passed_arg(console, step,
+                                     args.get(self.PARAMETER, None), validate):
+            return new_args
+
+        base_message = self.MESSAGE.format(step)
+        default_message = self.MESSAGE_DEFAULT.format(self.DEFAULT_VALUE)
+        msg = '\n'.join([base_message, default_message])
+        answer = _ask_prompt(msg, console, validate, default=self.DEFAULT_VALUE)
+        new_args[self.PARAMETER] = answer
+        return new_args
+
+    def _validate(self, django_project_name: str, s: str):
+        """Validates that a string is a valid Django project name.
+
+        Args:
+            s: The string to validate.
+            django_project_name: Project name must be different from app name.
+
+        Raises:
+            ValueError: if the input string is not valid.
+        """
+        if not s.isidentifier():
+            raise ValueError(('Invalid Django app name "{}": '
+                              'must be a valid Python identifier').format(s))
+
+        if django_project_name == s:
+            raise ValueError(
+                ('Invalid Django project name "{}": '
+                 'must be different than Django project name').format(s))
+
+
 class DjangoSuperuserLoginPrompt(StringTemplatePrompt):
     """Allow the user to enter a Django superuser login."""
 
     PARAMETER = 'django_superuser_login'
-    MESSAGE = '{} Enter a Django superuser login name or leave blank to use'
+    MESSAGE = '{} Enter a Django superuser login name'
     DEFAULT_VALUE = 'admin'
 
     def _validate(self, s: str):
@@ -1078,6 +1373,7 @@ class DjangoSuperuserPasswordPrompt(TemplatePrompt):
     """Allow the user to enter a password for the Django superuser."""
 
     PARAMETER = 'django_superuser_password'
+    MESSAGE = '{} Enter a password for the Django superuser'
 
     def _get_prompt_message(self, arguments: Dict[str, Any]) -> str:
         if 'django_superuser_login' in arguments:
@@ -1117,8 +1413,7 @@ class DjangoSuperuserEmailPrompt(StringTemplatePrompt):
     """Allow the user to enter a Django email address."""
 
     PARAMETER = 'django_superuser_email'
-    MESSAGE = ('{} Enter an email adress for the Django superuser '
-               'or leave blank to use')
+    MESSAGE = ('{} Enter an email adress for the Django superuser')
     DEFAULT_VALUE = 'test@example.com'
 
     def _validate(self, s: str):
@@ -1134,6 +1429,153 @@ class DjangoSuperuserEmailPrompt(StringTemplatePrompt):
             raise ValueError(('Invalid Django superuser email address "{}": '
                               'the format should be like '
                               '"test@example.com"').format(s))
+
+
+class DjangoSettingsPathPrompt(StringTemplatePrompt):
+    """Allow the user to enter the settings file path of a Django project.
+
+    When deploying existing Django projects, sometimes settings file of the
+    Django project is not at the default location. For example, by default a
+    settings file should be at <project_name>/settings.py, but actually the
+    Django project is using <project_name>/settings/prod.py. It is hard to
+    automatically detect the location of settings file. We need to ask user to
+    provide the accurate settings file path.
+    """
+
+    PARAMETER = 'django_settings_path'
+    MESSAGE = ('{} Enter the path of the Django settings file that should be '
+               'used for deployment: ')
+
+    def prompt(self, console: io.IO, step: str,
+               args: Dict[str, Any]) -> Dict[str, Any]:
+        """Extracts user arguments through the command-line.
+
+        Args:
+            console: Object to use for user I/O.
+            step: Message to present to user regarding what step they are on.
+            args: Dictionary holding prompts answered by user and set up
+                command-line arguments.
+
+        Returns:
+            A Copy of args + the new parameter collected.
+        """
+        new_args = dict(args)
+
+        django_directory_path = args.get('django_directory_path_cloudify', None)
+        validate = functools.partial(self._validate, django_directory_path)
+        if self._is_valid_passed_arg(console, step, args.get(self.PARAMETER),
+                                     validate):
+            return new_args
+
+        base_message = self.MESSAGE.format(step)
+        default_settings_path = utils.guess_settings_path(django_directory_path)
+        if default_settings_path:
+            default_message = '[{}]: '.format(default_settings_path)
+            msg = '\n'.join([base_message, default_message])
+        else:
+            msg = base_message
+        answer = _ask_prompt(msg,
+                             console,
+                             validate,
+                             default=default_settings_path)
+        new_args[self.PARAMETER] = answer
+        return new_args
+
+    def _validate(self, project_dir: str, django_settings_path: str):
+        """Validates that a string is a valid Django settings file path.
+
+        Args:
+            project_dir: Absolute path of the existing Django project.
+            django_settings_path: The string to validate.
+
+        Raises:
+            ValueError: if the input string is not a valid settings file path.
+        """
+        if not os.path.exists(django_settings_path):
+            raise ValueError(
+                'Path ["{}"] does not exist.'.format(django_settings_path))
+
+        root, ext = os.path.splitext(django_settings_path)
+        if ext != '.py':
+            raise ValueError(
+                '["{}"] is not a .py file.'.format(django_settings_path))
+
+        module_relative_path = os.path.relpath(root, project_dir)
+
+        module_name = module_relative_path.replace('/', '.')
+        sys.path.append(project_dir)
+        spec = importlib.util.spec_from_file_location(module_name,
+                                                      django_settings_path)
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except Exception as e:
+            raise ValueError(('Not able to load Django project settings module '
+                              'on {}'.format(django_settings_path))) from e
+        finally:
+            sys.path.pop()
+
+
+class DjangoRequirementsPathPrompt(StringTemplatePrompt):
+    """Allow the user to enter the path of requirements.txt of Django project."""
+
+    PARAMETER = 'django_requirements_path'
+    MESSAGE = '{} Enter the path of the requirements.txt'
+
+    def prompt(self, console: io.IO, step: str,
+               args: Dict[str, Any]) -> Dict[str, Any]:
+        """Extracts user arguments through the command-line.
+
+        Args:
+            console: Object to use for user I/O.
+            step: Message to present to user regarding what step they are on.
+            args: Dictionary holding prompts answered by user and set up
+                command-line arguments.
+
+        Returns:
+            A Copy of args + the new parameter collected.
+        """
+        new_args = dict(args)
+
+        if self._is_valid_passed_arg(console, step, args.get(self.PARAMETER),
+                                     self._validate):
+            return new_args
+
+        base_message = self.MESSAGE.format(step)
+        django_directory_path = args.get('django_directory_path_cloudify', None)
+        django_project_name = utils.get_django_project_name(
+            django_directory_path)
+        default_requirements_path = utils.guess_requirements_path(
+            django_directory_path, django_project_name)
+        new_args[self.PARAMETER] = default_requirements_path
+        if self._is_valid_passed_arg(console, step, args.get(self.PARAMETER),
+                                     self._validate):
+            return new_args
+        if default_requirements_path:
+            default_message = '[{}]: '.format(default_requirements_path)
+            msg = '\n'.join([base_message, default_message])
+        else:
+            msg = base_message
+        answer = _ask_prompt(msg,
+                             console,
+                             self._validate,
+                             default=default_requirements_path)
+        new_args[self.PARAMETER] = answer
+        return new_args
+
+    def _validate(self, django_requirements_path: str):
+        """Validates that a string is a valid path of requirements.txt.
+
+        Args:
+            django_requirements_path: The string to validate.
+
+        Raises:
+            ValueError: if the input string is not a valid requirements.txt file
+                path.
+        """
+        if not os.path.exists(django_requirements_path):
+            raise ValueError(
+                'File ["{}"] does not exist.'.format(django_requirements_path))
 
 
 class RootPrompt(object):
@@ -1163,6 +1605,9 @@ class RootPrompt(object):
         'billing_account_name',
         'database_password',
         'django_directory_path_cloudify',
+        'django_project_name_cloudify',
+        'django_requirements_path',
+        'django_settings_path',
         'django_superuser_login',
         'django_superuser_password',
         'django_superuser_email',
@@ -1187,7 +1632,10 @@ class RootPrompt(object):
             'django_directory_path_update': DjangoFilesystemPathUpdate(),
             'django_directory_path_cloudify': DjangoFilesystemPathCloudify(),
             'django_project_name': DjangoProjectNamePrompt(),
+            'django_project_name_cloudify': DjangoProjectNamePromptCloudify(),
             'django_app_name': DjangoAppNamePrompt(),
+            'django_requirements_path': DjangoRequirementsPathPrompt(),
+            'django_settings_path': DjangoSettingsPathPrompt(),
             'django_superuser_login': DjangoSuperuserLoginPrompt(),
             'django_superuser_password': DjangoSuperuserPasswordPrompt(),
             'django_superuser_email': DjangoSuperuserEmailPrompt()

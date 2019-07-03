@@ -17,11 +17,14 @@ See https://cloud.google.com/sql/docs/
 """
 
 import contextlib
+import os
 import signal
 import shutil
+import subprocess
 import time
 from typing import Optional
 
+import django
 from django import db
 from django.core import management
 from django_cloud_deploy import crash_handling
@@ -47,11 +50,10 @@ class DatabaseClient(object):
     @classmethod
     def from_credentials(cls, credentials: credentials.Credentials):
         return cls(
-            discovery.build(
-                'sqladmin',
-                'v1beta4',
-                credentials=credentials,
-                cache_discovery=False))
+            discovery.build('sqladmin',
+                            'v1beta4',
+                            credentials=credentials,
+                            cache_discovery=False))
 
     def create_instance_sync(self,
                              project_id: str,
@@ -113,15 +115,15 @@ class DatabaseClient(object):
                 return
 
         while True:
-            request = self._sqladmin_service.instances().get(
-                project=project_id, instance=instance)
+            request = self._sqladmin_service.instances().get(project=project_id,
+                                                             instance=instance)
             response = request.execute(num_retries=5)
             # Response format:
             # https://cloud.google.com/sql/docs/mysql/admin-api/v1beta4/instances#resource
             if response['state'] == 'RUNNABLE':
                 return
             elif response['state'] == 'PENDING_CREATE':
-                time.sleep(2)
+                time.sleep(5)
                 continue
             else:
                 raise DatabaseError(
@@ -142,8 +144,9 @@ class DatabaseClient(object):
         """
         # See:
         # https://cloud.google.com/sql/docs/mysql/admin-api/v1beta4/databases/insert
-        request = self._sqladmin_service.databases().get(
-            project=project_id, instance=instance, database=database)
+        request = self._sqladmin_service.databases().get(project=project_id,
+                                                         instance=instance,
+                                                         database=database)
         response = []
         try:
             response = request.execute(num_retries=5)
@@ -160,18 +163,20 @@ class DatabaseClient(object):
         # to create the same database again.
         if 'name' in response:
             return
-        request = self._sqladmin_service.databases().insert(
-            project=project_id,
-            instance=instance,
-            body={
-                'instance': instance,
-                'project': project_id,
-                'name': database
-            })
+        request = self._sqladmin_service.databases().insert(project=project_id,
+                                                            instance=instance,
+                                                            body={
+                                                                'instance':
+                                                                instance,
+                                                                'project':
+                                                                project_id,
+                                                                'name': database
+                                                            })
         response = request.execute(num_retries=5)
         while response['status'] in ['PENDING']:
-            request = self._sqladmin_service.databases().get(
-                project=project_id, instance=instance, database=database)
+            request = self._sqladmin_service.databases().get(project=project_id,
+                                                             instance=instance,
+                                                             database=database)
             response = request.execute(num_retries=5)
             time.sleep(2)
 
@@ -179,6 +184,34 @@ class DatabaseClient(object):
             raise DatabaseError(
                 'unexpected database status after creation: {!r} [{!r}]'.format(
                     response['status'], response))
+
+    def create_database_user(self, project_id: str, instance: str, user: str,
+                             password: str):
+        """Create a new database user.
+
+        Args:
+            project_id: The id of the project for the database user.
+            instance: The name of the instance for the database user.
+            user: The name of the database user e.g. "postgres".
+            password: The new password to set.
+
+        Raises:
+            DatabaseError: if unable to create the database user.
+        """
+        # See:
+        # https://cloud.google.com/sql/docs/mysql/admin-api/v1beta4/users/insert
+
+        request = self._sqladmin_service.users().insert(project=project_id,
+                                                        instance=instance,
+                                                        body={
+                                                            'name': user,
+                                                            'password': password
+                                                        })
+        response = request.execute(num_retries=5)
+        if response['status'] not in ['DONE', 'RUNNING']:
+            raise DatabaseError(
+                ('Unexpected database status after user creation: '
+                 '{!r} [{!r}]').format(response['status'], response))
 
     def set_database_password(self, project_id: str, instance: str, user: str,
                               password: str):
@@ -237,7 +270,14 @@ class DatabaseClient(object):
         Raises:
             DatabaseError: If cloud sql proxy failed to start after 5 seconds.
         """
-        db.close_old_connections()
+        try:
+            db.close_old_connections()
+        except django.core.exceptions.ImproperlyConfigured:
+            # The Django environment is not correctly setup. This might be
+            # because we are calling Django management commands with subprocess
+            # calls. In this case the subprocess we are calling will handle
+            # closing of old connections.
+            pass
         instance_connection_string = '{0}:{1}:{2}'.format(
             project_id, region, instance_name)
         instance_flag = '-instances={}=tcp:{}'.format(
@@ -248,11 +288,11 @@ class DatabaseClient(object):
         process = popen_spawn.PopenSpawn([cloud_sql_proxy_path, instance_flag])
         try:
             # Make sure cloud sql proxy is started before doing the real work
-            process.expect('Ready for new connections', timeout=5)
+            process.expect('Ready for new connections', timeout=60)
             yield
         except pexpect.exceptions.TIMEOUT:
             raise DatabaseError(
-                ('Cloud SQL Proxy was unable to start after 5 seconds. Output '
+                ('Cloud SQL Proxy was unable to start after 60 seconds. Output '
                  'of cloud_sql_proxy: \n{}').format(process.before))
         except pexpect.exceptions.EOF:
             raise DatabaseError(
@@ -262,6 +302,7 @@ class DatabaseClient(object):
             process.kill(signal.SIGTERM)
 
     def migrate_database(self,
+                         project_dir: str,
                          project_id: str,
                          instance_name: str,
                          cloud_sql_proxy_path: str = 'cloud_sql_proxy',
@@ -276,6 +317,7 @@ class DatabaseClient(object):
             3. Created the Cloud SQL instance and database user.
 
         Args:
+            project_dir: Absolute path of the Django project directory.
             project_id: GCP project id.
             instance_name: Name of the Cloud SQL instance where the database you
                 want to migrate is in.
@@ -286,14 +328,29 @@ class DatabaseClient(object):
         with self.with_cloud_sql_proxy(project_id, instance_name,
                                        cloud_sql_proxy_path, region, port):
             try:
+                # The environment variable must exist. This is the prerequisite
+                # of calling this function
+                settings_module = os.environ['DJANGO_SETTINGS_MODULE']
+
                 # "makemigrations" will generate migration files based on
                 # definitions in models.py.
-                management.call_command(
-                    'makemigrations', verbosity=0, interactive=False)
-
+                makemigrations_args = [
+                    'django-admin', 'makemigrations',
+                    '='.join(['--pythonpath', project_dir]),
+                    '='.join(['--settings', settings_module])
+                ]
+                subprocess.check_call(makemigrations_args,
+                                      stdout=subprocess.DEVNULL,
+                                      stderr=subprocess.DEVNULL)
                 # "migrate" will modify cloud sql database.
-                management.call_command(
-                    'migrate', verbosity=0, interactive=False)
+                migrate_args = [
+                    'django-admin', 'migrate',
+                    '='.join(['--pythonpath', project_dir]),
+                    '='.join(['--settings', settings_module])
+                ]
+                subprocess.check_call(migrate_args,
+                                      stdout=subprocess.DEVNULL,
+                                      stderr=subprocess.DEVNULL)
             except Exception as e:
                 raise crash_handling.UserError(
                     'Not able to migrate database.') from e
@@ -333,7 +390,8 @@ class DatabaseClient(object):
                                        cloud_sql_proxy_path, region, port):
             # This can only be imported after django.setup() is called
             try:
-                from django.contrib.auth.models import User
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
 
                 # Check whether the super user we want to create exist or not
                 # If a superuser with the same name already exist, we will skip
@@ -342,10 +400,9 @@ class DatabaseClient(object):
                 for user in users:
                     if user.is_superuser:
                         return
-                User.objects.create_superuser(
-                    username=superuser_name,
-                    email=superuser_email,
-                    password=superuser_password)
+                User.objects.create_superuser(username=superuser_name,
+                                              email=superuser_email,
+                                              password=superuser_password)
             except Exception as e:
                 raise crash_handling.UserError(
                     'Not able to create super user.') from e

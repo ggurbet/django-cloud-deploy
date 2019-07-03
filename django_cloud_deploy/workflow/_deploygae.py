@@ -17,9 +17,11 @@ import os
 import shutil
 import subprocess
 import time
-import yaml
+from typing import Any, Dict
 
+import backoff
 from googleapiclient import discovery
+import yaml
 
 from google.auth import credentials
 
@@ -32,8 +34,10 @@ class DeploygaeWorkflow(object):
     """Workflow to deploy Django app on GAE."""
 
     def __init__(self, credentials: credentials.Credentials):
-        self._appengine_service = discovery.build(
-            'appengine', 'v1', credentials=credentials, cache_discovery=False)
+        self._appengine_service = discovery.build('appengine',
+                                                  'v1',
+                                                  credentials=credentials,
+                                                  cache_discovery=False)
 
     def _create_app(self, project_id: str, region: str):
         """Synchronously create an App Engine application in the project."""
@@ -57,6 +61,31 @@ class DeploygaeWorkflow(object):
             elif operation.get('done'):
                 break
             time.sleep(2)
+
+    @staticmethod
+    @backoff.on_predicate(
+        backoff.expo, lambda x: x.returncode != 0, max_tries=5)
+    def _app_deploy_with_retry(gcloud_path: str, project: str,
+                               app_yaml_path: str, env_vars: Dict[str, Any]
+                              ) -> subprocess.CompletedProcess:
+        """Run 'gcloud app deploy' with retries.
+
+        Args:
+            gcloud_path: The path of your gcloud cli tool.
+            project: GCP project id.
+            app_yaml_path: Absolute path of your app.yaml.
+            env_vars: A dictionary of the environment variables.
+
+        Returns:
+            The result of the subprocess run.
+        """
+        gcloud_result = subprocess.run(
+            [gcloud_path, '-q', project, 'app', 'deploy', app_yaml_path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            env=env_vars)
+        return gcloud_result
 
     def deploy_gae_app(self,
                        project_id: str,
@@ -91,12 +120,8 @@ class DeploygaeWorkflow(object):
         # We need to grab all environment variables to pass to the subprocess
         env_vars = dict(os.environ)
         env_vars['CLOUDSDK_METRICS_ENVIRONMENT'] = 'django-cloud-deploy'
-        gcloud_result = subprocess.run(
-            [gcloud_path, '-q', project, 'app', 'deploy', app_yaml_path],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            universal_newlines=True,
-            env=env_vars)
+        gcloud_result = self._app_deploy_with_retry(gcloud_path, project,
+                                                    app_yaml_path, env_vars)
         if gcloud_result.returncode != 0:
             raise DeployNewAppError(gcloud_result.stderr)
 

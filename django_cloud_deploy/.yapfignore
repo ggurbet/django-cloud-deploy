@@ -1,0 +1,8 @@
+# Templates used to generate Django projects
+**/templates
+
+# Django project source files used in test
+**/data
+
+# Automatically generated nox files
+.nox

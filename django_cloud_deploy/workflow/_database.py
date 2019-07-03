@@ -29,6 +29,7 @@ class DatabaseWorkflow(object):
             credentials)
 
     def create_and_setup_database(self,
+                                  project_dir: str,
                                   project_id: str,
                                   instance_name: str,
                                   database_name: str,
@@ -48,6 +49,7 @@ class DatabaseWorkflow(object):
         regarding setting up a database.
 
         Args:
+            project_dir: Absolute path of the Django project directory.
             project_id: GCP project id.
             instance_name: The Cloud SQL instance name in which you want to
                     create the super user.
@@ -66,15 +68,21 @@ class DatabaseWorkflow(object):
         self._database_client.create_instance_sync(project_id, instance_name)
         self._database_client.create_database_sync(project_id, instance_name,
                                                    database_name)
-        self._database_client.set_database_password(
-            project_id, instance_name, database_user, database_password)
-        self._database_client.migrate_database(
-            project_id, instance_name, cloud_sql_proxy_path, region, port)
-        self._database_client.create_super_user(
-            superuser_name, superuser_email, superuser_password, project_id,
-            instance_name, cloud_sql_proxy_path, region, port)
+        self._database_client.set_database_password(project_id, instance_name,
+                                                    database_user,
+                                                    database_password)
+        self._database_client.migrate_database(project_dir, project_id,
+                                               instance_name,
+                                               cloud_sql_proxy_path, region,
+                                               port)
+        self._database_client.create_super_user(superuser_name, superuser_email,
+                                                superuser_password, project_id,
+                                                instance_name,
+                                                cloud_sql_proxy_path, region,
+                                                port)
 
     def migrate_database(self,
+                         project_dir: str,
                          project_id: str,
                          instance_name: str,
                          cloud_sql_proxy_path: str = 'cloud_sql_proxy',
@@ -90,6 +98,7 @@ class DatabaseWorkflow(object):
             3. Created the Cloud SQL instance and database user.
 
         Args:
+            project_dir: Absolute path of the Django project directory.
             project_id: GCP project id.
             instance_name: The Cloud SQL instance name in which you want to
                     create the super user.
@@ -97,8 +106,10 @@ class DatabaseWorkflow(object):
             region: Where the Cloud SQL instance is in.
             port: The port being forwarded by cloud sql proxy.
         """
-        self._database_client.migrate_database(
-            project_id, instance_name, cloud_sql_proxy_path, region, port)
+        self._database_client.migrate_database(project_dir, project_id,
+                                               instance_name,
+                                               cloud_sql_proxy_path, region,
+                                               port)
 
     def with_cloud_sql_proxy(self,
                              project_id: str,

@@ -13,17 +13,23 @@
 # limitations under the License.
 """Tests for django_cloud_deploy.cli.prompt."""
 
+import os
+import shutil
+import sys
 import tempfile
 from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
 
+from django.core import management
+
 from django_cloud_deploy import workflow
 from django_cloud_deploy.cli import io
 from django_cloud_deploy.cli import prompt
-from django_cloud_deploy.cloudlib import project
 from django_cloud_deploy.cloudlib import billing
+from django_cloud_deploy.cloudlib import project
+import psycopg2
 
 from google.auth import credentials
 
@@ -171,6 +177,17 @@ class DjangoAppNamePromptTest(absltest.TestCase):
         test_io.answers.append('5')
         test_io.answers.append('djangoapp')
         args = self.django_app_name_prompt.prompt(test_io, '[1/2]', {})
+        name = args['django_app_name']
+        self.assertEqual(name, 'djangoapp')
+        self.assertEqual(len(test_io.answers), 0)  # All answers used.
+
+    def test_prompt_same_name_as_project(self):
+        test_io = io.TestIO()
+
+        test_io.answers.append('djangoproject')
+        test_io.answers.append('djangoapp')
+        args = {'django_project_name': 'djangoproject'}
+        args = self.django_app_name_prompt.prompt(test_io, '[1/2]', args)
         name = args['django_app_name']
         self.assertEqual(name, 'djangoapp')
         self.assertEqual(len(test_io.answers), 0)  # All answers used.
@@ -731,6 +748,397 @@ class BillingPromptTest(absltest.TestCase):
         billing_name = args['billing_account_name']
         self.assertEqual(billing_name, _SINGLE_FAKE_ACCOUNT[0]['name'])
         self.assertEqual(len(test_io.answers), 0)  # All answers used.
+
+
+class DjangoSettingsPathPromptTest(absltest.TestCase):
+    """Tests for prompt.DjangoSettingsPathPrompt."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.django_settings_path_prompt = prompt.DjangoSettingsPathPrompt()
+
+    def setUp(self):
+        super().setUp()
+        self.project_name = 'mysite'
+        self.project_dir = tempfile.mkdtemp()
+        management.call_command('startproject', self.project_name,
+                                self.project_dir)
+
+    def tearDown(self):
+        super().tearDown()
+        shutil.rmtree(self.project_dir)
+
+    def test_prompt(self):
+        test_io = io.TestIO()
+
+        expected_settings_path = os.path.join(self.project_dir,
+                                              self.project_name, 'settings.py')
+        test_io.answers.append(expected_settings_path)
+        before_sys_path = sys.path
+        args = self.django_settings_path_prompt.prompt(
+            test_io,
+            '[2/2]',
+            {'django_directory_path_cloudify': self.project_dir},
+        )
+        django_settings_path = args.get('django_settings_path', None)
+        self.assertEqual(django_settings_path, expected_settings_path)
+        self.assertEmpty(test_io.answers)  # All answers used.
+
+        # Assert sys.path is not changed by the prompt
+        self.assertCountEqual(before_sys_path, sys.path)
+
+    def test_settings_file_not_found(self):
+        test_io = io.TestIO()
+
+        expected_settings_path = os.path.join(self.project_dir,
+                                              self.project_name, 'settings.py')
+        test_io.answers.append('<invalid_path>')
+        test_io.answers.append(expected_settings_path)
+        before_sys_path = sys.path
+        args = self.django_settings_path_prompt.prompt(
+            test_io,
+            '[2/2]',
+            {'django_directory_path_cloudify': self.project_dir},
+        )
+        django_settings_path = args.get('django_settings_path', None)
+        self.assertEqual(django_settings_path, expected_settings_path)
+        self.assertEmpty(test_io.answers)  # All answers used.
+
+        # Assert sys.path is not changed by the prompt
+        self.assertCountEqual(before_sys_path, sys.path)
+
+    def test_settings_file_not_a_python_file(self):
+        test_io = io.TestIO()
+
+        invalid_settings_path = os.path.join(self.project_dir,
+                                             self.project_name, 'settings')
+        expected_settings_path = os.path.join(self.project_dir,
+                                              self.project_name, 'settings.py')
+        shutil.copyfile(expected_settings_path, invalid_settings_path)
+
+        test_io.answers.append(invalid_settings_path)
+        test_io.answers.append(expected_settings_path)
+        before_sys_path = sys.path
+        args = self.django_settings_path_prompt.prompt(
+            test_io,
+            '[2/2]',
+            {'django_directory_path_cloudify': self.project_dir},
+        )
+        django_settings_path = args.get('django_settings_path', None)
+        self.assertEqual(django_settings_path, expected_settings_path)
+        self.assertEmpty(test_io.answers)  # All answers used.
+
+        # Assert sys.path is not changed by the prompt
+        self.assertCountEqual(before_sys_path, sys.path)
+
+    def test_settings_file_invalid(self):
+        test_io = io.TestIO()
+
+        invalid_settings_path = os.path.join(self.project_dir,
+                                             self.project_name,
+                                             'settings_invalid.py')
+        expected_settings_path = os.path.join(self.project_dir,
+                                              self.project_name, 'settings.py')
+        shutil.copyfile(expected_settings_path, invalid_settings_path)
+        with open(invalid_settings_path) as f:
+            file_content = f.read()
+        with open(invalid_settings_path, 'wt') as f:
+            file_content = file_content + '\nprint("12345"  # Invalid print'
+            f.write(file_content)
+        test_io.answers.append(invalid_settings_path)
+        test_io.answers.append(expected_settings_path)
+        before_sys_path = sys.path
+        args = self.django_settings_path_prompt.prompt(
+            test_io,
+            '[2/2]',
+            {'django_directory_path_cloudify': self.project_dir},
+        )
+        django_settings_path = args.get('django_settings_path', None)
+        self.assertEqual(django_settings_path, expected_settings_path)
+        self.assertEmpty(test_io.answers)  # All answers used.
+
+        # Assert sys.path is not changed by the prompt
+        self.assertCountEqual(before_sys_path, sys.path)
+
+
+class DjangoRequirementsPathPromptTest(absltest.TestCase):
+    """Tests for prompt.DjangoRequirementsPathPrompt."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.requirements_prompt = prompt.DjangoRequirementsPathPrompt()
+
+    def setUp(self):
+        super().setUp()
+        self.project_name = 'mysite'
+        self.project_dir = tempfile.mkdtemp()
+        management.call_command('startproject', self.project_name,
+                                self.project_dir)
+        requirements_path = os.path.join(self.project_dir, 'requirements.txt')
+        with open(requirements_path, 'wt') as f:
+            f.write('six')
+
+    def tearDown(self):
+        super().tearDown()
+        shutil.rmtree(self.project_dir)
+
+    def test_prompt(self):
+        test_io = io.TestIO()
+
+        expected_requirements_path = os.path.join(self.project_dir,
+                                                  'requirements.txt')
+        test_io.answers.append(expected_requirements_path)
+        args = self.requirements_prompt.prompt(
+            test_io,
+            '[2/2]',
+            {'django_directory_path_cloudify': self.project_dir},
+        )
+        requirements_path = args.get('django_requirements_path', None)
+        self.assertEqual(requirements_path, expected_requirements_path)
+        self.assertEmpty(test_io.answers)  # All answers used.
+
+    def test_default_value(self):
+        test_io = io.TestIO()
+
+        expected_requirements_path = os.path.join(self.project_dir,
+                                                  'requirements.txt')
+        test_io.answers.append('')
+        args = self.requirements_prompt.prompt(
+            test_io,
+            '[2/2]',
+            {'django_directory_path_cloudify': self.project_dir},
+        )
+        requirements_path = args.get('django_requirements_path', None)
+        self.assertEqual(requirements_path, expected_requirements_path)
+        self.assertEmpty(test_io.answers)  # All answers used.
+
+    def test_requirements_file_not_found(self):
+        test_io = io.TestIO()
+
+        expected_requirements_path = os.path.join(self.project_dir,
+                                                  'requirements.txt')
+        test_io.answers.append('<invalid_path>')
+        test_io.answers.append(expected_requirements_path)
+        args = self.requirements_prompt.prompt(
+            test_io,
+            '[2/2]',
+            {'django_directory_path_cloudify': self.project_dir},
+        )
+        requirements_path = args.get('django_requirements_path', None)
+        self.assertEqual(requirements_path, expected_requirements_path)
+        self.assertEmpty(test_io.answers)  # All answers used.
+
+
+class GroupingPromptTest(absltest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.grouping_prompt = prompt.GroupingPrompt()
+
+    def test_parse_step_info(self):
+        step = '<b>[2/12]</b>'
+        current_step, total_steps = self.grouping_prompt.parse_step_info(step)
+        self.assertEqual(current_step, '2')
+        self.assertEqual(total_steps, '12')
+
+
+class NewDatabaseInformationPromptTest(absltest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.db_prompt = prompt.NewDatabaseInformationPrompt()
+
+    def test_valid_db_info(self):
+        test_io = io.TestIO()
+        expected_user = 'admin'
+        expected_password = 'fake_password'
+        test_io.answers.append(expected_user)
+        test_io.password_answers.append(expected_password)
+        test_io.password_answers.append(expected_password)
+        args = self.db_prompt.prompt(
+            test_io,
+            '[1/12]',
+            {},
+        )
+        user = args.get('database_username')
+        password = args.get('database_password')
+        self.assertEqual(user, expected_user)
+        self.assertEqual(password, expected_password)
+        self.assertEmpty(test_io.answers)
+        self.assertEmpty(test_io.password_answers)  # All answers used.
+
+    def test_invalid_password(self):
+        test_io = io.TestIO()
+
+        expected_user = 'admin'
+        bad_password = '123'
+        expected_password = 'fake_password'
+        test_io.answers.append(expected_user)
+        test_io.password_answers.append(bad_password)
+        test_io.password_answers.append(bad_password)
+        test_io.password_answers.append(expected_password)
+        test_io.password_answers.append(expected_password)
+        args = self.db_prompt.prompt(test_io, '[1/2]', {})
+        user = args.get('database_username')
+        password = args.get('database_password')
+        self.assertEqual(user, expected_user)
+        self.assertEqual(password, expected_password)
+        self.assertEmpty(test_io.answers)
+        self.assertEmpty(test_io.password_answers)  # All answers used.
+
+    def test_invalid_user(self):
+        test_io = io.TestIO()
+
+        bad_user = '_@9jqads]]]'
+        expected_user = 'admin'
+        expected_password = 'fake_password'
+        test_io.answers.append(bad_user)
+        test_io.answers.append(expected_user)
+        test_io.password_answers.append(expected_password)
+        test_io.password_answers.append(expected_password)
+        args = self.db_prompt.prompt(test_io, '[1/2]', {})
+        user = args.get('database_username')
+        password = args.get('database_password')
+        self.assertEqual(user, expected_user)
+        self.assertEqual(password, expected_password)
+        self.assertEmpty(test_io.answers)
+        self.assertEmpty(test_io.password_answers)  # All answers used.
+
+
+class ExistingDatabaseInformationPrompt(absltest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.db_prompt = prompt.ExistingDatabaseInformationPrompt()
+
+    @mock.patch('psycopg2.connect')
+    def test_valid_db_info(self, unused_mock):
+        test_io = io.TestIO()
+        expected_host = '127.0.0.1'
+        expected_port = 5432
+        expected_user = 'admin'
+        expected_password = 'fake_password'
+        expected_db_name = 'mydb'
+        test_io.answers.append(expected_host)
+        test_io.answers.append(expected_port)
+        test_io.answers.append(expected_user)
+        test_io.answers.append(expected_db_name)
+        test_io.password_answers.append(expected_password)
+        test_io.password_answers.append(expected_password)
+        args = self.db_prompt.prompt(
+            test_io,
+            '[1/12]',
+            {},
+        )
+        host = args.get('database_host')
+        port = args.get('database_port')
+        user = args.get('database_username')
+        password = args.get('database_password')
+        database = args.get('database_name')
+        self.assertEqual(user, expected_user)
+        self.assertEqual(host, expected_host)
+        self.assertEqual(port, expected_port)
+        self.assertEqual(database, expected_db_name)
+        self.assertEqual(password, expected_password)
+        self.assertEmpty(test_io.answers)
+        self.assertEmpty(test_io.password_answers)  # All answers used.
+
+    @mock.patch('psycopg2.connect')
+    def test_fail_to_connect_db(self, mock_connect):
+        mock_connect.side_effect = [
+            psycopg2.OperationalError('Invalid Password'),
+            mock.Mock(psycopg2.extensions.connection)
+        ]
+        test_io = io.TestIO()
+        expected_host = '127.0.0.1'
+        expected_port = 5432
+        expected_user = 'admin'
+        expected_password = 'fake_password'
+        expected_db_name = 'mydb'
+        test_io.answers.append(expected_host)
+        test_io.answers.append(expected_port)
+        test_io.answers.append(expected_user)
+        test_io.answers.append(expected_db_name)
+        test_io.password_answers.append('bad_password')
+        test_io.password_answers.append('bad_password')
+        test_io.answers.append(expected_host)
+        test_io.answers.append(expected_port)
+        test_io.answers.append(expected_user)
+        test_io.answers.append(expected_db_name)
+        test_io.password_answers.append(expected_password)
+        test_io.password_answers.append(expected_password)
+        args = self.db_prompt.prompt(
+            test_io,
+            '[1/12]',
+            {},
+        )
+        host = args.get('database_host')
+        port = args.get('database_port')
+        user = args.get('database_username')
+        password = args.get('database_password')
+        database = args.get('database_name')
+        self.assertEqual(user, expected_user)
+        self.assertEqual(host, expected_host)
+        self.assertEqual(port, expected_port)
+        self.assertEqual(database, expected_db_name)
+        self.assertEqual(password, expected_password)
+        self.assertEmpty(test_io.answers)
+        self.assertEmpty(test_io.password_answers)  # All answers used.
+
+
+class DjangoProjectNamePromptCloudifyTest(absltest.TestCase):
+    """Tests for prompt.DjangoProjectNamePromptCloudify."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.name_prompt = prompt.DjangoProjectNamePromptCloudify()
+
+    def setUp(self):
+        super().setUp()
+        self.project_name = 'mysite'
+        self.project_dir = tempfile.mkdtemp()
+        management.call_command('startproject', self.project_name,
+                                self.project_dir)
+
+    def tearDown(self):
+        super().tearDown()
+        shutil.rmtree(self.project_dir)
+
+    def test_prompt(self):
+        test_io = io.TestIO()
+        args = self.name_prompt.prompt(
+            test_io,
+            '[2/2]',
+            {'django_directory_path_cloudify': self.project_dir},
+        )
+        project_name = args.get('django_project_name_cloudify', None)
+        self.assertEqual(self.project_name, project_name)
+        self.assertEmpty(test_io.answers)  # All answers used.
+
+    def test_cannot_find_project_name(self):
+        test_io = io.TestIO()
+        manage_py_path = os.path.join(self.project_dir, 'manage.py')
+        with open(manage_py_path) as f:
+            file_content = f.read()
+        with open(manage_py_path, 'wt') as f:
+            file_content = file_content.replace(
+                '\'{}.settings\''.format(self.project_name), 'module_variable')
+            f.write(file_content)
+        test_io.answers.append('mysite')
+        args = self.name_prompt.prompt(
+            test_io,
+            '[2/2]',
+            {'django_directory_path_cloudify': self.project_dir},
+        )
+        project_name = args.get('django_project_name_cloudify', None)
+        self.assertEqual(self.project_name, project_name)
+        self.assertEmpty(test_io.answers)  # All answers used.
 
 
 if __name__ == '__main__':

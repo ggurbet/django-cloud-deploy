@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """A module help parse requirements.txt."""
 
 import os
@@ -36,7 +35,7 @@ def parse_line(line: str) -> str:
 
     # See
     # https://pip.pypa.io/en/stable/reference/pip_install/#requirement-specifiers
-    return re.split(r'[;\[~>=<]', line)[0].strip()
+    return re.split(r'[;\[~>=<]', line)[0].strip().lower()
 
 
 def parse(path: str) -> Set[str]:
@@ -75,4 +74,3 @@ def parse(path: str) -> Set[str]:
             else:
                 results.add(parse_line(line))
     return results
-

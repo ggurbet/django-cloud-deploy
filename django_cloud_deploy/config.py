@@ -25,6 +25,7 @@ class Configuration(object):
     """A class to encapsulate a single configuration."""
 
     _HEADER = '# Generated file, do not edit'
+    _CONFIG_FILE_NAME = '.config.yaml'
 
     def __init__(self, django_directory_path: str):
         """Initialize a configuration object from a Django project directory.
@@ -45,12 +46,27 @@ class Configuration(object):
             raise ValueError('[{}] is not a valid directory path.'.format(
                 django_directory_path))
         self._config_path = os.path.join(django_directory_path,
-                                         '.config.yaml')
+                                         self._CONFIG_FILE_NAME)
         if os.path.exists(self._config_path):
             with open(self._config_path) as config_file:
                 self._data = yaml.load(config_file, Loader=yaml.FullLoader)
         else:
             self._data = {}
+
+    @staticmethod
+    def exist(django_directory_path: str) -> bool:
+        """Returns whether the configuration file exist in the given dir.
+
+        Args:
+            django_directory_path: Absolute path of the Django project
+                directory.
+
+        Returns:
+            Whether the configuration file exist.
+        """
+        config_path = os.path.join(django_directory_path,
+                                   Configuration._CONFIG_FILE_NAME)
+        return os.path.exists(config_path)
 
     def set(self, attr: str, value: Any):
         """Set value of an attribute.
@@ -63,8 +79,9 @@ class Configuration(object):
 
     def save(self):
         """Generate the configuration file in yaml format."""
-        yaml_text = '\n'.join([self._HEADER,
-                               yaml.dump(self._data, default_flow_style=False)])
+        yaml_text = '\n'.join(
+            [self._HEADER,
+             yaml.dump(self._data, default_flow_style=False)])
         with open(self._config_path, 'w') as config_file:
             config_file.write(yaml_text)
 
